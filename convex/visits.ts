@@ -1,0 +1,260 @@
+import { v } from "convex/values";
+import { walkInPurposeSchema } from "../lib/validation/visits";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+import { hasSiteAccess, requireSite } from "./lib/auth";
+import { writeAudit } from "./lib/audit";
+import { appError } from "./lib/errors";
+import { orgMutation, orgQuery, type OrgCtx } from "./lib/functions";
+import { parseOrThrow } from "./lib/validate";
+import { requireGate, requireHost, upsertVisitor } from "./lib/visitors";
+
+const MAX_LIST = 300;
+
+const vVisitorInput = v.object({
+  name: v.string(),
+  phone: v.optional(v.string()),
+  email: v.optional(v.string()),
+  company: v.optional(v.string()),
+});
+
+function newBadgeCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+async function addEvent(
+  ctx: MutationCtx,
+  visit: Pick<Doc<"visits">, "_id" | "organizationId" | "siteId">,
+  type: Doc<"visitEvents">["type"],
+  actorUserId: Id<"users">,
+  gateId?: Id<"gates">,
+) {
+  await ctx.db.insert("visitEvents", {
+    organizationId: visit.organizationId,
+    siteId: visit.siteId,
+    visitId: visit._id,
+    type,
+    actorUserId,
+    gateId,
+    at: Date.now(),
+  });
+}
+
+/** Load a visit in the caller's organization and site access; otherwise NOT_FOUND. */
+async function loadVisit(ctx: OrgCtx, visitId: Id<"visits">) {
+  const visit = await ctx.db.get(visitId);
+  if (!visit || visit.organizationId !== ctx.oc.org._id || !hasSiteAccess(ctx.oc.membership, visit.siteId)) {
+    throw appError("NOT_FOUND");
+  }
+  return visit;
+}
+
+/** Visits currently on site (or awaiting admission) at the caller's accessible sites. */
+export const listActive = orgQuery({
+  args: { siteId: v.optional(v.id("sites")) },
+  handler: async (ctx, { siteId }) => {
+    ctx.require("visits:read_site");
+    let siteIds: Id<"sites">[];
+    if (siteId) {
+      await requireSite(ctx, ctx.oc, siteId);
+      siteIds = [siteId];
+    } else {
+      const sites = await ctx.db
+        .query("sites")
+        .withIndex("by_org", (q) => q.eq("organizationId", ctx.oc.org._id))
+        .take(200);
+      siteIds = sites.filter((s) => hasSiteAccess(ctx.oc.membership, s._id)).map((s) => s._id);
+    }
+    const rows: Doc<"visits">[] = [];
+    for (const id of siteIds) {
+      for (const status of ["expected", "on_site"] as const) {
+        rows.push(
+          ...(await ctx.db
+            .query("visits")
+            .withIndex("by_site_status", (q) => q.eq("siteId", id).eq("status", status))
+            .take(MAX_LIST)),
+        );
+      }
+    }
+    return await Promise.all(
+      rows.map(async (visit) => {
+        const [visitor, host] = await Promise.all([
+          ctx.db.get(visit.visitorId),
+          visit.hostUserId ? ctx.db.get(visit.hostUserId) : null,
+        ]);
+        return {
+          ...visit,
+          visitorName: visitor?.name ?? "Unknown",
+          hostName: host?.name ?? host?.email ?? null,
+        };
+      }),
+    );
+  },
+});
+
+export const get = orgQuery({
+  args: { visitId: v.id("visits") },
+  handler: async (ctx, { visitId }) => {
+    ctx.require("visits:read_site");
+    const visit = await ctx.db.get(visitId);
+    if (!visit || visit.organizationId !== ctx.oc.org._id || !hasSiteAccess(ctx.oc.membership, visit.siteId)) {
+      throw appError("NOT_FOUND");
+    }
+    const [visitor, events] = await Promise.all([
+      ctx.db.get(visit.visitorId),
+      ctx.db.query("visitEvents").withIndex("by_visit", (q) => q.eq("visitId", visitId)).take(50),
+    ]);
+    return { ...visit, visitor, events };
+  },
+});
+
+/** Admit a visitor with an approved appointment. */
+export const checkInAppointment = orgMutation({
+  args: { appointmentId: v.id("appointments"), gateId: v.id("gates") },
+  handler: async (ctx, { appointmentId, gateId }) => {
+    ctx.require("visits:check_in");
+    const appt = await ctx.db.get(appointmentId);
+    if (!appt || appt.organizationId !== ctx.oc.org._id || !hasSiteAccess(ctx.oc.membership, appt.siteId)) {
+      throw appError("NOT_FOUND");
+    }
+    if (appt.status !== "approved") {
+      throw appError("CONFLICT", "Only approved appointments can be checked in.");
+    }
+    await requireGate(ctx, ctx.oc, gateId, appt.siteId);
+    const now = Date.now();
+    const visitId = await ctx.db.insert("visits", {
+      organizationId: ctx.oc.org._id,
+      siteId: appt.siteId,
+      visitorId: appt.visitorId,
+      appointmentId,
+      hostUserId: appt.hostUserId,
+      purpose: appt.purpose,
+      status: "on_site",
+      badgeCode: newBadgeCode(),
+      checkedInAt: now,
+      checkedInGateId: gateId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(appointmentId, { status: "checked_in", updatedAt: now });
+    await addEvent(
+      ctx,
+      { _id: visitId, organizationId: ctx.oc.org._id, siteId: appt.siteId },
+      "checked_in",
+      ctx.oc.user._id,
+      gateId,
+    );
+    await writeAudit(ctx, {
+      organizationId: ctx.oc.org._id,
+      actorUserId: ctx.oc.user._id,
+      action: "visit.checked_in",
+      resourceType: "visit",
+      resourceId: visitId,
+    });
+    return visitId;
+  },
+});
+
+/**
+ * Register a walk-in. Anyone with `visitors:register_walk_in` creates an
+ * `expected` visit; a user who can also check visitors in and supplies a gate
+ * admits them at once.
+ */
+export const registerWalkIn = orgMutation({
+  args: {
+    siteId: v.id("sites"),
+    visitor: vVisitorInput,
+    purpose: v.string(),
+    hostUserId: v.optional(v.id("users")),
+    gateId: v.optional(v.id("gates")),
+  },
+  handler: async (ctx, { siteId, visitor, purpose, hostUserId, gateId }) => {
+    ctx.require("visitors:register_walk_in");
+    await requireSite(ctx, ctx.oc, siteId);
+    const cleanPurpose = parseOrThrow(walkInPurposeSchema, purpose);
+    if (hostUserId) await requireHost(ctx, ctx.oc, hostUserId, siteId);
+    const admitNow = Boolean(gateId) && ctx.oc.permissions.has("visits:check_in");
+    if (gateId) await requireGate(ctx, ctx.oc, gateId, siteId);
+    const visitorId = await upsertVisitor(ctx, ctx.oc.org._id, visitor);
+    const now = Date.now();
+    const visitId = await ctx.db.insert("visits", {
+      organizationId: ctx.oc.org._id,
+      siteId,
+      visitorId,
+      hostUserId,
+      purpose: cleanPurpose,
+      status: admitNow ? "on_site" : "expected",
+      badgeCode: admitNow ? newBadgeCode() : undefined,
+      checkedInAt: admitNow ? now : undefined,
+      checkedInGateId: admitNow ? gateId : undefined,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ref = { _id: visitId, organizationId: ctx.oc.org._id, siteId };
+    await addEvent(ctx, ref, "registered", ctx.oc.user._id);
+    if (admitNow) await addEvent(ctx, ref, "checked_in", ctx.oc.user._id, gateId);
+    await writeAudit(ctx, {
+      organizationId: ctx.oc.org._id,
+      actorUserId: ctx.oc.user._id,
+      action: "visit.walk_in_registered",
+      resourceType: "visit",
+      resourceId: visitId,
+    });
+    return visitId;
+  },
+});
+
+/** Admit a registered (expected) visitor at a gate. */
+export const admit = orgMutation({
+  args: { visitId: v.id("visits"), gateId: v.id("gates") },
+  handler: async (ctx, { visitId, gateId }) => {
+    ctx.require("visits:check_in");
+    const visit = await loadVisit(ctx, visitId);
+    if (visit.status !== "expected") throw appError("CONFLICT", "This visitor is not awaiting admission.");
+    await requireGate(ctx, ctx.oc, gateId, visit.siteId);
+    const now = Date.now();
+    await ctx.db.patch(visitId, {
+      status: "on_site",
+      badgeCode: newBadgeCode(),
+      checkedInAt: now,
+      checkedInGateId: gateId,
+      updatedAt: now,
+    });
+    await addEvent(ctx, visit, "checked_in", ctx.oc.user._id, gateId);
+    await writeAudit(ctx, {
+      organizationId: ctx.oc.org._id,
+      actorUserId: ctx.oc.user._id,
+      action: "visit.checked_in",
+      resourceType: "visit",
+      resourceId: visitId,
+    });
+  },
+});
+
+export const checkOut = orgMutation({
+  args: { visitId: v.id("visits"), gateId: v.id("gates") },
+  handler: async (ctx, { visitId, gateId }) => {
+    ctx.require("visits:check_out");
+    const visit = await loadVisit(ctx, visitId);
+    if (visit.status !== "on_site") throw appError("CONFLICT", "This visitor is not on site.");
+    await requireGate(ctx, ctx.oc, gateId, visit.siteId);
+    const now = Date.now();
+    await ctx.db.patch(visitId, {
+      status: "checked_out",
+      checkedOutAt: now,
+      checkedOutGateId: gateId,
+      updatedAt: now,
+    });
+    if (visit.appointmentId) {
+      await ctx.db.patch(visit.appointmentId, { status: "completed", updatedAt: now });
+    }
+    await addEvent(ctx, visit, "checked_out", ctx.oc.user._id, gateId);
+    await writeAudit(ctx, {
+      organizationId: ctx.oc.org._id,
+      actorUserId: ctx.oc.user._id,
+      action: "visit.checked_out",
+      resourceType: "visit",
+      resourceId: visitId,
+    });
+  },
+});
