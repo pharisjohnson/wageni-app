@@ -41,3 +41,11 @@
 6. Email/SMS/WhatsApp adapters, crons, webhooks
 7. Plans, usage metering, billing provider, trials
 8. Hardening, monitoring, backups, deployment docs, dedicated deployments
+
+## Manual checks (signed-in layout, not automatable without Clerk/Convex credentials)
+
+- App shell, desktop (>= md): the sidebar is `sticky h-svh` and its nav list scrolls on its own. At 1280x500, confirm the nav list scrolls without moving the page and that only one vertical scrollbar shows on the page.
+- App shell: the top header stays pinned while the page scrolls; Tab from a fresh load shows the "Skip to main content" link first and it moves focus to the main region.
+- Mobile (< md): the hamburger opens the navigation sheet, choosing a link closes it, and the active link has `aria-current="page"`.
+- Platform console at 375px: the nav row sits under the title instead of being hidden; "Platform overview" back link shows on sub-pages; "Exit to app" works.
+- Kiosk (needs a seeded organization): at iPad portrait and landscape no tile is clipped; Back and Start over are at least 48px tall on every sub-screen; Tab shows a visible ring on the Visitor/Staff tiles; 90 seconds idle on a sub-screen returns to the welcome screen.

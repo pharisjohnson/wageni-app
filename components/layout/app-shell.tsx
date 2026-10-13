@@ -44,12 +44,17 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div className="flex min-h-full flex-col gap-4 p-3">
-      <Link href="/app" className="px-3 pt-1 text-lg font-semibold" onClick={onNavigate}>
+    <div className="flex h-full min-h-0 flex-col gap-4 p-3">
+      <Link href="/app" className="shrink-0 px-3 pt-1 text-lg font-semibold" onClick={onNavigate}>
         {appConfig.name}
       </Link>
-      <OrgSwitcher />
-      <NavLinks onNavigate={onNavigate} />
+      <div className="shrink-0">
+        <OrgSwitcher />
+      </div>
+      {/* Scrolls on its own so the nav stays reachable however long the page is. */}
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1">
+        <NavLinks onNavigate={onNavigate} />
+      </div>
     </div>
   );
 }
@@ -65,8 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         Skip to main content
       </a>
-      {/* The sidebar scrolls on its own when the nav is taller than the viewport. */}
-      <aside className="sticky top-0 hidden h-svh w-64 shrink-0 overflow-y-auto overscroll-contain border-r bg-sidebar md:block">
+      <aside className="sticky top-0 hidden h-svh w-64 shrink-0 border-r bg-sidebar md:block">
         <SidebarBody />
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -77,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <Menu />
             </SheetTrigger>
-            <SheetContent side="left" className="w-72 overflow-y-auto p-0">
+            <SheetContent side="left" className="w-72 p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <SidebarBody onNavigate={() => setOpen(false)} />
             </SheetContent>
