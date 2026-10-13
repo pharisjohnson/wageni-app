@@ -19,7 +19,6 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { errorMessage } from "@/lib/auth/errors";
 import { useActiveOrg } from "@/lib/org/active-org";
 import {
-  FIELD_TYPES,
   FIELD_TYPE_LABELS,
   formFieldSchema,
   formFieldsSchema,
@@ -27,7 +26,7 @@ import {
   type FieldType,
   type FormField,
 } from "@/lib/validation/forms";
-import { cleanField, moveItem, newField, type DraftField } from "./builder-utils";
+import { cleanField, fieldTypesFor, moveItem, newField, type DraftField } from "./builder-utils";
 import { FieldEditor } from "./field-editor";
 import { FormPreview } from "./form-preview";
 
@@ -167,13 +166,20 @@ function BuilderInner({ form }: { form: Detail }) {
       <PageHeader
         title={form.name}
         back={{ href: "/app/forms", label: "Back to forms" }}
-        description={`${form.audience === "visitor" ? "Visitor" : "Staff"} form`}
+        description={
+          form.audience === "visitor"
+            ? "Visitor form: asked at the kiosk and on invitation links."
+            : "Staff form: asked when staff clock in (kiosk and Attendance page)."
+        }
         actions={
           <>
             <Badge variant={form.status === "published" ? "default" : "secondary"}>
               {form.status === "published" ? `Live: version ${live?.version ?? "?"}` : form.status}
             </Badge>
             {form.status === "published" && (unsaved || form.hasUnpublishedChanges) && <Badge variant="outline">Unpublished changes</Badge>}
+            <Badge variant={form.audience === "staff" ? "secondary" : "outline"}>
+              {form.audience === "staff" ? "Staff form" : "Visitor form"}
+            </Badge>
           </>
         }
       />
@@ -189,6 +195,20 @@ function BuilderInner({ form }: { form: Detail }) {
         </Card>
       )}
 
+      {form.audience === "staff" && (
+        <Card>
+          <CardContent className="space-y-1 pt-4 text-sm">
+            <p className="font-medium">How a staff form works</p>
+            <p className="text-muted-foreground">
+              While this form is published for a site, staff must answer it every time they clock in at that site (kiosk and Attendance
+              page). Clocking out never asks. Answers are stored against the person and that clock-in, and managers can read them on the
+              person&apos;s page in Staff. File, photo, signature and ID fields are not available, and nothing here fills a visit record.
+              Sensitive answers stay hidden until someone with the sensitive-data permission reveals them (logged).
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Details</CardTitle>
@@ -200,7 +220,11 @@ function BuilderInner({ form }: { form: Detail }) {
           <Field id="fd-purpose" label="Purpose (optional)">
             <Input id="fd-purpose" disabled={archived} {...details.register("purpose")} />
           </Field>
-          <Field id="fd-site" label="Site" help="Visitors at other sites will not see this form.">
+          <Field
+            id="fd-site"
+            label="Site"
+            help={form.audience === "staff" ? "Staff at other sites are not asked this form." : "Visitors at other sites will not see this form."}
+          >
             <NativeSelect id="fd-site" disabled={archived} {...details.register("siteId")}>
               <option value="">All sites</option>
               {sites?.map((s) => (
@@ -266,7 +290,7 @@ function BuilderInner({ form }: { form: Detail }) {
               <div className="flex flex-wrap items-end gap-2 pt-2">
                 <Field id="add-type" label="Add a field">
                   <NativeSelect id="add-type" value={addType} onChange={(e) => setAddType(e.target.value as FieldType)}>
-                    {FIELD_TYPES.map((t) => (
+                    {fieldTypesFor(form.audience).map((t) => (
                       <option key={t} value={t}>
                         {FIELD_TYPE_LABELS[t]}
                       </option>
@@ -287,7 +311,13 @@ function BuilderInner({ form }: { form: Detail }) {
           </CardHeader>
           <CardContent>
             {selectedField && !archived ? (
-              <FieldEditor key={selectedField.id} field={selectedField} earlier={fields.slice(0, selectedIndex)} onChange={update} />
+              <FieldEditor
+                key={selectedField.id}
+                field={selectedField}
+                audience={form.audience}
+                earlier={fields.slice(0, selectedIndex)}
+                onChange={update}
+              />
             ) : (
               <p className="text-sm text-muted-foreground">Select a field to change its label, rules, mapping and retention.</p>
             )}

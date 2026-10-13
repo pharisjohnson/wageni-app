@@ -1,12 +1,10 @@
 import { v } from "convex/values";
 import { effectivePermissions } from "../lib/permissions";
 import { kioskCheckOutSchema, kioskPhoneSchema, kioskWalkInSchema } from "../lib/validation/visits";
-import type { Doc } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
-import { kioskMutation, kioskQuery, type KioskContext } from "./lib/kiosk";
-import { lookupLocked, phoneDigits, phoneKey, recordLookupFailure } from "./lib/kioskLookup";
-import { dayBoundsInZone } from "./lib/time";
+import { kioskMutation, kioskQuery } from "./lib/kiosk";
+import { lookupLocked, phoneDigits, recordLookupFailure, todaysAppointmentsForPhone } from "./lib/kioskLookup";
 import { parseOrThrow } from "./lib/validate";
+import { formRequiredForAppointment } from "./lib/formResponses";
 import { assertHost, upsertVisitor } from "./lib/visitors";
 import { admitAppointment, completeCheckOut, registerVisit } from "./lib/visits";
 
@@ -32,31 +30,12 @@ type NoMatch = { status: "no_match" };
 type Locked = { status: "locked" };
 const NO_MATCH: NoMatch = { status: "no_match" };
 const LOCKED: Locked = { status: "locked" };
+const FORM_REQUIRED = { status: "form_required" as const };
 
-const MAX_TODAY = 300;
 const MAX_ON_SITE = 1000;
 
 function firstName(name: string) {
   return name.trim().split(/\s+/)[0] ?? "";
-}
-
-/** Approved appointments today at the device's site whose visitor phone matches. */
-async function todaysAppointmentsForPhone(ctx: MutationCtx & { kiosk: KioskContext }, phone: string) {
-  const { org, site } = ctx.kiosk;
-  const key = phoneKey(phone);
-  const { start, end } = dayBoundsInZone(Date.now(), site.timeZone);
-  const today = await ctx.db
-    .query("appointments")
-    .withIndex("by_site_start", (q) => q.eq("siteId", site._id).gte("scheduledStart", start).lt("scheduledStart", end))
-    .take(MAX_TODAY);
-  const out: { appt: Doc<"appointments">; visitor: Doc<"visitors"> }[] = [];
-  for (const appt of today) {
-    if (appt.organizationId !== org._id || appt.status !== "approved") continue;
-    const visitor = await ctx.db.get(appt.visitorId);
-    if (!visitor || visitor.organizationId !== org._id || !visitor.phone) continue;
-    if (phoneKey(visitor.phone) === key) out.push({ appt, visitor });
-  }
-  return out;
 }
 
 /**
@@ -130,6 +109,8 @@ export const checkInAppointment = kioskMutation({
       await recordLookupFailure(ctx, device);
       return NO_MATCH;
     }
+    // A published visitor form must be answered first (kioskForms.checkInAppointmentWithForm).
+    if (await formRequiredForAppointment(ctx, ctx.kiosk, hit.appt)) return FORM_REQUIRED;
     const { badgeCode } = await admitAppointment(ctx, hit.appt, gate._id, {
       kioskDeviceId: device._id,
     });

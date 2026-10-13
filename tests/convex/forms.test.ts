@@ -417,6 +417,11 @@ describe("files", () => {
       id_scan: { fileId: scan.res.fileId },
     });
     const [visit] = await onlyVisit(t);
+    // Fake bytes cannot pass content verification; the verification flow has its own tests (files-f2).
+    const fileIds = [sig.res.fileId, scan.res.fileId];
+    await t.run(async (ctx) => {
+      for (const id of fileIds) await ctx.db.patch(id, { verifyStatus: "verified" });
+    });
     return { t, s, versionId, sigId: sig.res.fileId, scanId: scan.res.fileId, visitId: visit!._id };
   }
 

@@ -1,8 +1,7 @@
 "use client";
 
-import { useConvex, useMutation, useQuery } from "convex/react";
 import { useParams } from "next/navigation";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { FileUploader } from "@/components/forms-builder/capture-field";
 import { FormRenderer } from "@/components/forms-builder/form-renderer";
 import { useFormController } from "@/components/forms-builder/use-form-controller";
@@ -10,9 +9,8 @@ import { Field } from "@/components/forms/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { errorMessage } from "@/lib/auth/errors";
+import { inviteApi, InviteCallError, type InviteLookup } from "@/lib/invite/client";
 import { postBlob, UPLOAD_REJECTED_MESSAGES } from "@/lib/files/image";
 import {
   autoFillAnswers,
@@ -25,6 +23,10 @@ import {
  * Public invitation page. No sign-in: the link's token is the credential. Every
  * problem with the link (unknown, expired, used, cancelled) shows the same
  * message, so the page reveals nothing about which one it was.
+ *
+ * Every call goes through the Next.js proxy (`/api/invite/*`, see
+ * lib/invite/client.ts) so a per-IP rate limit applies; the page never calls
+ * Convex directly.
  */
 function Unavailable() {
   return (
@@ -39,17 +41,38 @@ function Unavailable() {
 
 export default function InvitePage() {
   const { token } = useParams<{ token: string }>();
-  const view = useQuery(api.invitations.lookup, { token });
+  // undefined = loading, null = unavailable, an error string = could not load
+  const [view, setView] = useState<InviteLookup | null | undefined | { error: string }>(undefined);
+  useEffect(() => {
+    let live = true;
+    inviteApi
+      .lookup(token)
+      .then((v) => live && setView(v))
+      .catch((e) => {
+        if (!live) return;
+        // A throttled or unreachable lookup is not the same as a bad link.
+        setView(e instanceof InviteCallError && e.status !== 404 ? { error: e.message } : null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [token]);
   if (view === undefined) return <Skeleton className="h-64 w-full" />;
+  if (view === null) return <Unavailable />;
+  if ("error" in view) {
+    return (
+      <p role="alert" className="rounded-2xl border p-6 text-center">
+        {view.error}
+      </p>
+    );
+  }
   if (view.status !== "ok") return <Unavailable />;
   return <InviteForm token={token} view={view} />;
 }
 
-type View = Extract<NonNullable<ReturnType<typeof useQuery<typeof api.invitations.lookup>>>, { status: "ok" }>;
+type View = Extract<InviteLookup, { status: "ok" }>;
 
 function InviteForm({ token, view }: { token: string; view: View }) {
-  const convex = useConvex();
-  const submitInvite = useMutation(api.invitations.submit);
   const fields = useMemo(() => (view.form?.fields ?? []) as FormField[], [view.form]);
   const ctrl = useFormController(fields);
   const [details, setDetails] = useState({
@@ -68,15 +91,16 @@ function InviteForm({ token, view }: { token: string; view: View }) {
 
   const uploader = useMemo<FileUploader>(
     () => async (kind, blob) => {
-      const up = await convex.mutation(api.invitations.generateUploadUrl, { token, kind });
+      const up = await inviteApi.uploadUrl(token, kind);
       if (up.status !== "ok") throw new Error("This link is no longer available.");
+      // The bytes go straight to private storage; only the registration is proxied.
       const storageId = (await postBlob(up.uploadUrl, blob)) as Id<"_storage">;
-      const res = await convex.mutation(api.invitations.registerUploaded, { token, storageId, kind });
+      const res = await inviteApi.registerUpload(token, storageId, kind);
       if (res.status === "unavailable") throw new Error("This link is no longer available.");
       if (res.status !== "ok") throw new Error(UPLOAD_REJECTED_MESSAGES[res.reason]);
       return res.fileId;
     },
-    [convex, token],
+    [token],
   );
 
   const when = `${new Date(view.scheduledStart).toLocaleString([], { dateStyle: "full", timeStyle: "short", timeZone: view.timeZone })}`;
@@ -97,7 +121,7 @@ function InviteForm({ token, view }: { token: string; view: View }) {
     if (!base || !answers) return;
     setBusy(true);
     try {
-      const res = await submitInvite({
+      const res = await inviteApi.submit({
         token,
         details: {
           name: base.name,
@@ -107,12 +131,12 @@ function InviteForm({ token, view }: { token: string; view: View }) {
         },
         versionId: view.form?.versionId,
         // Auto-filled answers are added again on the server from the same details.
-        answers: Object.fromEntries(Object.entries(answers).filter(([k]) => !hide.has(k))) as never,
+        answers: Object.fromEntries(Object.entries(answers).filter(([k]) => !hide.has(k))),
       });
       if (res.status !== "ok") setGone(true);
       else setDone({ approval: res.approval, hostName: res.hostName });
     } catch (err) {
-      setFormError(errorMessage(err));
+      setFormError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(false);
     }

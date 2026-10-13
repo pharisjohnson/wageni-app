@@ -2,12 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { CheckCircle2, LogIn, LogOut } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import type { FileUploader } from "@/components/forms-builder/capture-field";
+import { FormRenderer } from "@/components/forms-builder/form-renderer";
+import { useFormController } from "@/components/forms-builder/use-form-controller";
 import { useKioskOrg } from "@/components/kiosk/kiosk-frame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { FormField } from "@/lib/validation/forms";
 import { PIN_PATTERN } from "@/lib/attendance/sessions";
 import { errorCode, KioskUnpairedError, useKioskApi } from "@/lib/kiosk/use-kiosk-api";
 
@@ -17,10 +22,68 @@ const DONE_SECONDS = 15;
 const GENERIC_FAILURE =
   "We couldn't verify those details. Check your staff number and PIN, or ask reception for help.";
 
+/** The staff form published for this site (for example a daily declaration), asked at clock-in. */
+type StaffForm = { versionId: Id<"formVersions">; name: string; fields: unknown[] };
+
 type Step =
   | { name: "identify"; error?: string }
-  | { name: "confirm"; firstName: string; alreadyDone: boolean; since: number | null }
+  | { name: "confirm"; firstName: string; alreadyDone: boolean; since: number | null; form: StaffForm | null }
+  | { name: "form"; firstName: string; form: StaffForm; error?: string }
   | { name: "done"; firstName: string; at: number; message: string };
+
+/** Staff forms hold no files, so there is nothing to upload from here. */
+const noUploads: FileUploader = async () => {
+  throw new Error("Files cannot be added to this form.");
+};
+
+function StaffFormStep({
+  form,
+  firstName,
+  busy,
+  error,
+  onSubmit,
+  onBack,
+}: {
+  form: StaffForm;
+  firstName: string;
+  busy: boolean;
+  error?: string;
+  onSubmit: (answers: Record<string, unknown>) => void;
+  onBack: () => void;
+}) {
+  const fields = useMemo(() => form.fields as FormField[], [form.fields]);
+  const ctrl = useFormController(fields);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const answers = ctrl.validate();
+        if (answers) onSubmit(answers);
+      }}
+      className="w-full max-w-xl space-y-6 rounded-2xl border bg-background p-8"
+      noValidate
+    >
+      <div className="space-y-1 text-center">
+        <h1 className="text-3xl font-semibold">{form.name}</h1>
+        <p className="text-muted-foreground">Hello {firstName}. Please answer this to check in.</p>
+      </div>
+      <FormRenderer fields={fields} ctrl={ctrl} uploader={noUploads} variant="kiosk" />
+      {error && (
+        <p role="alert" className="text-center text-base text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <Button type="submit" className="h-14 px-8 text-lg" disabled={busy}>
+          <LogIn aria-hidden /> {busy ? "Saving…" : "Submit and check in"}
+        </Button>
+        <Button type="button" variant="outline" className="h-14 px-8 text-lg" disabled={busy} onClick={onBack}>
+          Back
+        </Button>
+      </div>
+    </form>
+  );
+}
 
 const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -78,7 +141,13 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
       const r = await kioskApi.mutation(api.kioskAttendance.identify, { staffNumber, pin });
       if (!r.ok) return reset(GENERIC_FAILURE);
       const alreadyDone = checkingIn ? r.status === "in" : r.status === "out";
-      setStep({ name: "confirm", firstName: r.firstName, alreadyDone, since: r.since });
+      setStep({
+        name: "confirm",
+        firstName: r.firstName,
+        alreadyDone,
+        since: r.since,
+        form: checkingIn && r.form ? { versionId: r.form.versionId, name: r.form.name, fields: r.form.fields } : null,
+      });
     } catch (err) {
       handleCallError(err);
     } finally {
@@ -86,15 +155,40 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
     }
   }
 
-  async function onRecord() {
+  /** `answers` is set when a staff form was filled in; the server asks for it again if it is missing. */
+  async function onRecord(form?: StaffForm, answers?: Record<string, unknown>) {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await kioskApi.mutation(api.kioskAttendance.record, { staffNumber, pin, type });
-      // The PIN is no longer needed whatever happened.
+      const r = await kioskApi.mutation(
+        api.kioskAttendance.record,
+        form && answers
+          ? { staffNumber, pin, type, versionId: form.versionId, answers: answers as never }
+          : { staffNumber, pin, type },
+      );
+      if (!r.ok) {
+        setPin("");
+        setStaffNumber("");
+        return reset(GENERIC_FAILURE);
+      }
+      // Form problems keep the PIN so the person can fix the answers and try again.
+      if (r.outcome === "form_invalid" && form) {
+        return setStep({ name: "form", firstName: r.firstName, form, error: r.message });
+      }
+      if (r.outcome === "form_stale") {
+        return setStep({
+          name: "form",
+          firstName: r.firstName,
+          form: form as StaffForm,
+          error: "This form was just updated. Please go back and start again.",
+        });
+      }
+      // The PIN is no longer needed once the clock-in was decided.
       setPin("");
       setStaffNumber("");
-      if (!r.ok) return reset(GENERIC_FAILURE);
+      if (r.outcome === "form_required") {
+        return reset("A form must be answered to check in. Please try again.");
+      }
       if (r.outcome === "recorded") {
         setStep({
           name: "done",
@@ -136,6 +230,19 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
     );
   }
 
+  if (step.name === "form") {
+    return (
+      <StaffFormStep
+        form={step.form}
+        firstName={step.firstName}
+        busy={busy}
+        error={step.error}
+        onSubmit={(answers) => onRecord(step.form, answers)}
+        onBack={() => reset()}
+      />
+    );
+  }
+
   if (step.name === "confirm") {
     return (
       <div className="w-full max-w-xl space-y-6 rounded-2xl border bg-background p-8 text-center">
@@ -153,8 +260,14 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
         )}
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
           {!step.alreadyDone && (
-            <Button className="h-14 px-8 text-lg" disabled={busy} onClick={onRecord}>
-              <Icon aria-hidden /> {busy ? "Saving…" : title}
+            <Button
+              className="h-14 px-8 text-lg"
+              disabled={busy}
+              onClick={() =>
+                step.form ? setStep({ name: "form", firstName: step.firstName, form: step.form }) : onRecord()
+              }
+            >
+              <Icon aria-hidden /> {busy ? "Saving…" : step.form ? "Continue" : title}
             </Button>
           )}
           <Button variant="outline" className="h-14 px-8 text-lg" disabled={busy} onClick={() => reset()}>

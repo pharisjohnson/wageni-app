@@ -85,8 +85,14 @@ export async function formsSetup(t: T, slug = "acme") {
    * convex-test does not expose a stored blob's content type, so the type is
    * injected through `registerUpload`'s metadata reader.
    */
-  async function upload(kind: "signature" | "id_scan" | "photo" | "file", type: string, bytes = 100) {
-    const storageId = await t.run(async (ctx) => ctx.storage.store(new Blob([new Uint8Array(bytes)], { type })));
+  async function upload(
+    kind: "signature" | "id_scan" | "photo" | "file",
+    type: string,
+    bytes: number | Uint8Array = 100,
+    opts: { verify?: boolean } = {},
+  ) {
+    const data = typeof bytes === "number" ? new Uint8Array(bytes) : bytes;
+    const storageId = await t.run(async (ctx) => ctx.storage.store(new Blob([data as unknown as BlobPart], { type })));
     const res = await t.run(async (ctx) =>
       registerUpload(
         ctx,
@@ -96,6 +102,8 @@ export async function formsSetup(t: T, slug = "acme") {
           storageId,
           kind,
           uploader: { kioskDeviceId: deviceId },
+          // Fake bytes would fail content verification, so it only runs when a test asks for it.
+          verify: opts.verify ?? false,
         },
         async (c, id) => {
           const meta = await c.db.system.get(id);

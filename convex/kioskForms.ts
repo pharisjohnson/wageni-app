@@ -1,13 +1,23 @@
 import { v } from "convex/values";
 import { kioskWalkInSchema } from "../lib/validation/visits";
-import { mappedValues, type Answers } from "../lib/validation/forms";
+import { kioskPhoneSchema } from "../lib/validation/visits";
+import { mappedValues, usableAutoFill, type Answers, type FormField, type InviteDetails } from "../lib/validation/forms";
+import type { Doc } from "./_generated/dataModel";
 import { kioskMutation, kioskQuery } from "./lib/kiosk";
-import { checkAnswers, fieldsOf, resolveActiveForm, servedFields, storeResponse } from "./lib/formResponses";
+import { lookupLocked, recordLookupFailure, todaysAppointmentsForPhone } from "./lib/kioskLookup";
+import {
+  checkAnswers,
+  fieldsOf,
+  formRequiredForAppointment,
+  resolveActiveForm,
+  servedFields,
+  storeResponse,
+} from "./lib/formResponses";
 import { faceCaptureEnabled } from "./lib/policy";
 import { appError } from "./lib/errors";
 import { parseOrThrow } from "./lib/validate";
 import { assertHost, upsertVisitor } from "./lib/visitors";
-import { registerVisit } from "./lib/visits";
+import { admitAppointment, registerVisit } from "./lib/visits";
 import { vRawAnswers } from "./validators";
 
 /**
@@ -40,6 +50,113 @@ export const activeVisitorForm = kioskQuery({
 function firstName(name: string) {
   return name.trim().split(/\s+/)[0] ?? "";
 }
+
+/**
+ * What the appointment already tells us. These fill form fields mapped to the
+ * same targets (name, phone, email, company, purpose) on the server, so the
+ * visitor is not asked twice and the values never travel to the screen.
+ */
+function knownDetails(appt: Doc<"appointments">, visitor: Doc<"visitors">): InviteDetails {
+  return {
+    name: visitor.name,
+    phone: visitor.phone ?? "",
+    email: visitor.email,
+    company: visitor.company,
+    purpose: appt.purpose,
+  };
+}
+
+const NO_MATCH = { status: "no_match" as const };
+const LOCKED = { status: "locked" as const };
+
+/**
+ * Appointment check-in, step 2 (after the phone matched): the form this visit
+ * must answer. Re-verifies the phone (an appointment id alone is useless) and
+ * shares the failed-lookup throttle. `no_form` means check in directly
+ * (`kioskVisitor.checkInAppointment`): either no form is published for this
+ * site or the visitor already answered it through their invitation link.
+ * `prefilledFieldIds` are fields filled server-side from the appointment; the
+ * screen must not show them.
+ */
+export const formForAppointment = kioskMutation({
+  args: { appointmentId: v.id("appointments"), phone: v.string() },
+  handler: async (ctx, args) => {
+    const phone = parseOrThrow(kioskPhoneSchema, args.phone);
+    const { org, device } = ctx.kiosk;
+    if (lookupLocked(device)) return LOCKED;
+    const hit = (await todaysAppointmentsForPhone(ctx, phone)).find((f) => f.appt._id === args.appointmentId);
+    if (!hit) {
+      await recordLookupFailure(ctx, device);
+      return NO_MATCH;
+    }
+    const active = await formRequiredForAppointment(ctx, ctx.kiosk, hit.appt);
+    if (!active) return { status: "no_form" as const };
+    const fields = servedFields(org, active.version);
+    return {
+      status: "form" as const,
+      versionId: active.version._id,
+      version: active.version.version,
+      name: active.version.name,
+      fields,
+      prefilledFieldIds: Object.keys(usableAutoFill(fields, knownDetails(hit.appt, hit.visitor))),
+      faceCaptureEnabled: faceCaptureEnabled(org),
+    };
+  },
+});
+
+/**
+ * Appointment check-in WITH the published form: verifies the phone again,
+ * validates the answers server-side against the version being served (same
+ * `validateAnswers` as walk-ins), creates the visit through the shared
+ * `admitAppointment`, and stores the response against the visit, the
+ * appointment and the exact form version. Anything invalid throws before the
+ * visit is created, so a rejected form never admits anyone.
+ */
+export const checkInAppointmentWithForm = kioskMutation({
+  args: {
+    appointmentId: v.id("appointments"),
+    phone: v.string(),
+    versionId: v.id("formVersions"),
+    answers: vRawAnswers,
+  },
+  handler: async (ctx, args) => {
+    const phone = parseOrThrow(kioskPhoneSchema, args.phone);
+    const { org, site, gate, device } = ctx.kiosk;
+    if (lookupLocked(device)) return LOCKED;
+    const hit = (await todaysAppointmentsForPhone(ctx, phone)).find((f) => f.appt._id === args.appointmentId);
+    if (!hit) {
+      await recordLookupFailure(ctx, device);
+      return NO_MATCH;
+    }
+    const active = await formRequiredForAppointment(ctx, ctx.kiosk, hit.appt);
+    if (!active) throw appError("CONFLICT", "This form is no longer needed. Please start again.");
+    if (active.version._id !== args.versionId) {
+      throw appError("CONFLICT", "This form was updated. Please start again.");
+    }
+    const fields: FormField[] = fieldsOf(active.version);
+    // Known details win over anything the screen sent for those fields.
+    const filled = { ...args.answers, ...usableAutoFill(fields, knownDetails(hit.appt, hit.visitor)) };
+    const { answers, fileIds } = await checkAnswers(ctx, org, active.version, filled, { kioskDeviceId: device._id });
+    const { visitId, badgeCode } = await admitAppointment(ctx, hit.appt, gate._id, { kioskDeviceId: device._id });
+    await storeResponse(ctx, {
+      org,
+      siteId: site._id,
+      form: active.form,
+      version: active.version,
+      answers,
+      fileIds,
+      visitId,
+      appointmentId: hit.appt._id,
+      actor: { kioskDeviceId: device._id },
+    });
+    return {
+      status: "ok" as const,
+      firstName: firstName(hit.visitor.name),
+      hostName: (await ctx.db.get(hit.appt.hostUserId))?.name ?? "your host",
+      badgeCode,
+    };
+  },
+});
 
 /**
  * Walk-in with the published form. Same outcome as `kioskVisitor.registerWalkIn`

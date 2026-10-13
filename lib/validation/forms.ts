@@ -225,6 +225,21 @@ export function publishProblems(
       if (!hasConsent) problems.push(`"${f.label}" needs a required consent checkbox before it.`);
     }
   });
+  if (opts.audience === "staff") {
+    // Staff forms are answered at clock-in: they have no visit to fill, and
+    // no signed-in upload path exists yet, so file-like fields are refused.
+    for (const f of fields) {
+      if (f.mapsTo) {
+        problems.push(`"${f.label}" fills a visit record, which staff forms do not have. Remove "Fill into".`);
+      }
+      // (face photos are already reported above)
+      if (FILE_TYPES.includes(f.type) && f.type !== "face_photo") {
+        problems.push(
+          `"${f.label}": ${FIELD_TYPE_LABELS[f.type].toLowerCase()} fields are not available on staff forms yet.`,
+        );
+      }
+    }
+  }
   if (opts.audience === "visitor") {
     for (const target of ["visitor.name", "visitor.phone", "visit.purpose"] as const) {
       const f = fields.find((x) => x.mapsTo === target);
@@ -238,6 +253,11 @@ export function publishProblems(
 }
 
 // ---------- Answers ----------
+
+/** What replaces an answer once its retention period ended (see convex/formRetention.ts). */
+export type RedactedAnswer = { redacted: true };
+export const isRedactedAnswer = (a: unknown): a is RedactedAnswer =>
+  typeof a === "object" && a !== null && !Array.isArray(a) && (a as { redacted?: unknown }).redacted === true;
 
 export type AnswerValue =
   | string
@@ -456,6 +476,24 @@ export function autoFillAnswers(fields: readonly FormField[], details: InviteDet
     if (!isAutoFilled(f)) continue;
     const value = details[AUTOFILL_TARGETS[f.mapsTo!]!];
     if (value) out[f.id] = value;
+  }
+  return out;
+}
+
+/**
+ * Like `autoFillAnswers`, but keeps only values the field would accept. A
+ * stored phone or email that no longer passes the field's rules is dropped, so
+ * the answerer is asked for it instead of being blocked by an error on a field
+ * they cannot see.
+ */
+export function usableAutoFill(fields: readonly FormField[], details: InviteDetails): Record<string, string> {
+  const raw = autoFillAnswers(fields, details);
+  const out: Record<string, string> = {};
+  for (const f of fields) {
+    const value = raw[f.id];
+    if (value === undefined) continue;
+    const res = validateAnswers([{ ...f, required: false, showIf: undefined }], { [f.id]: value });
+    if (res.ok) out[f.id] = value;
   }
   return out;
 }

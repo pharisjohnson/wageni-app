@@ -1,6 +1,7 @@
 import { internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { resolveInviteOrigin } from "../../lib/invite/origin";
 
 /**
  * Hook point called inside the `invitations.create` transaction, after the
@@ -11,18 +12,34 @@ import type { MutationCtx } from "../_generated/server";
  * `link` is the only moment the plaintext token exists (only its hash is
  * stored on the invitation). It is passed to the scheduler as an argument, so
  * it sits in the scheduled-function record until it runs. Never log it or put
- * it in audit metadata. Set `APP_BASE_URL` (e.g. https://app.example.com) in
- * the Convex environment so the link is absolute; without it the path is sent.
+ * it in audit metadata.
+ *
+ * Absolute links: `APP_BASE_URL` (Convex environment) wins when set. Otherwise
+ * the origin the signed-in browser sent is used, after validation
+ * (`lib/invite/origin.ts`: https, or http://localhost when
+ * `ALLOW_LOCAL_ORIGIN=true`; no credentials, path, query or fragment). With
+ * neither, only the path is sent.
  */
 export type InvitationCreatedEvent = {
   invitation: Doc<"invitations">;
   /** Path (no origin) the visitor opens, e.g. `/invite/wi_...`. */
   link: string;
+  /** Origin the creating browser reported (`window.location.origin`); validated before use. */
+  origin?: string;
 };
+
+/** The absolute link for `path`, or `path` itself when no trusted origin is known. */
+export function absoluteInviteLink(path: string, requestedOrigin?: string): string {
+  const base = resolveInviteOrigin({
+    configured: process.env.APP_BASE_URL,
+    requested: requestedOrigin,
+    allowLocal: process.env.ALLOW_LOCAL_ORIGIN === "true",
+  });
+  return `${base}${path}`;
+}
 
 export async function onInvitationCreated(ctx: MutationCtx, event: InvitationCreatedEvent): Promise<void> {
   const { invitation } = event;
-  const base = (process.env.APP_BASE_URL ?? "").replace(/\/+$/, "");
   await ctx.scheduler.runAfter(0, internal.notifications.onInvitationCreated, {
     organizationId: invitation.organizationId,
     siteId: invitation.siteId,
@@ -31,7 +48,7 @@ export async function onInvitationCreated(ctx: MutationCtx, event: InvitationCre
       email: invitation.visitorEmail,
       phone: invitation.visitorPhone,
     },
-    link: `${base}${event.link}`,
+    link: absoluteInviteLink(event.link, event.origin),
     idempotencyKey: `invite:${invitation._id}`,
   });
 }

@@ -50,6 +50,41 @@ pnpm dev
 Open http://localhost:3000, sign up, and you will be sent to `/onboarding` to
 create your first organization.
 
+## 5. Invitation links, per-IP limits (F2)
+
+The public invitation page does not call Convex directly: it goes through the
+Next.js route handlers in `app/api/invite/*`, which rate limit per client IP
+and then call Convex with a shared secret. Set these once:
+
+| Variable | Where | Value |
+| --- | --- | --- |
+| `INVITE_PROXY_SECRET` | **Next env** (`.env.local`, Vercel project) **and Convex dashboard** (Settings, Environment Variables) | The same random string in both, at least 32 characters. Generate with `openssl rand -base64 36`. |
+| `APP_BASE_URL` | **Convex dashboard** only | The public app URL, e.g. `https://app.example.com`. Makes invitation links absolute (email/SMS). Recommended in production. |
+| `CLIENT_IP_HEADER` | Next env, optional | Only when not hosted on Vercel: a header your proxy sets to the client address. |
+| `ALLOW_UNPROXIED_INVITES` | Next env **and** Convex, development only | `true` lets the invite page work without a secret (one shared limit for everyone). Never in production. |
+| `ALLOW_LOCAL_ORIGIN` | Convex, development only | `true` accepts `http://localhost:3000` as the origin of invitation links. |
+
+```bash
+SECRET=$(openssl rand -base64 36)
+npx convex env set INVITE_PROXY_SECRET "$SECRET"
+# and add the same value as INVITE_PROXY_SECRET to .env.local / the Vercel project
+npx convex env set APP_BASE_URL https://app.example.com
+```
+
+With `INVITE_PROXY_SECRET` unset, invitation links show "not available"
+(fail closed). For local development without a secret:
+
+```bash
+npx convex env set ALLOW_UNPROXIED_INVITES true
+npx convex env set ALLOW_LOCAL_ORIGIN true
+echo "ALLOW_UNPROXIED_INVITES=true" >> .env.local
+```
+
+Without `APP_BASE_URL`, the signed-in browser sends its own origin when an
+invitation is created; the server accepts it only if it is a clean `https`
+origin (or `http://localhost` with `ALLOW_LOCAL_ORIGIN`). Anything with
+credentials, a path, query or fragment is ignored and the link stays a path.
+
 ## Optional
 
 **Platform operator.** After signing in once:

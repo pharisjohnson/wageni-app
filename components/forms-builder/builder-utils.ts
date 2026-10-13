@@ -1,5 +1,6 @@
 import {
   CHOICE_TYPES,
+  FIELD_TYPES,
   FIELD_TYPE_LABELS,
   FORM_LIMITS,
   MAPS_COMPATIBLE,
@@ -60,6 +61,14 @@ export function cleanField(f: DraftField): DraftField {
   const showIf = out.showIf as { fieldId?: string; equals?: string } | undefined;
   if (showIf && (!showIf.fieldId || !showIf.equals)) delete out.showIf;
   return out as DraftField;
+}
+
+/** Field types a staff form cannot use: files need an upload path that staff forms do not have yet. */
+export const STAFF_BLOCKED_TYPES: readonly FieldType[] = ["signature", "file_upload", "photo", "id_scan", "face_photo"];
+
+/** Field types the builder offers for an audience. */
+export function fieldTypesFor(audience: "visitor" | "staff"): FieldType[] {
+  return FIELD_TYPES.filter((t) => audience === "visitor" || !STAFF_BLOCKED_TYPES.includes(t));
 }
 
 export function compatibleTargets(type: FieldType): MapsTo[] {

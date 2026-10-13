@@ -23,7 +23,8 @@ import {
 } from "./lib/attendance";
 import { appError } from "./lib/errors";
 import { orgMutation, orgQuery, type OrgCtx } from "./lib/functions";
-import { vAttendanceType } from "./validators";
+import { checkAnswers, resolveActiveForm, servedFields, storeResponse } from "./lib/formResponses";
+import { vAttendanceType, vRawAnswers } from "./validators";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_RANGE_MS = 62 * DAY_MS;
@@ -408,16 +409,51 @@ export const pendingCorrections = orgQuery({
 
 // --- Clocking -----------------------------------------------------------------
 
-export const clockIn = orgMutation({
+/**
+ * The staff form (daily declaration, shift note...) the caller must answer to
+ * clock in at `siteId`, or null when none is published for that site.
+ */
+export const activeStaffForm = orgQuery({
   args: { siteId: v.id("sites") },
   handler: async (ctx, { siteId }) => {
+    ctx.require("staff_attendance:create");
+    const site = await requireSite(ctx, ctx.oc, siteId);
+    if (site.status !== "active") throw appError("NOT_FOUND");
+    const active = await resolveActiveForm(ctx, ctx.oc.org._id, siteId, "staff");
+    if (!active) return null;
+    return {
+      versionId: active.version._id,
+      version: active.version.version,
+      name: active.version.name,
+      fields: servedFields(ctx.oc.org, active.version),
+    };
+  },
+});
+
+export const clockIn = orgMutation({
+  args: {
+    siteId: v.id("sites"),
+    /** Answers to the site's staff form: required when one is published for the site. */
+    form: v.optional(v.object({ versionId: v.id("formVersions"), answers: vRawAnswers })),
+  },
+  handler: async (ctx, { siteId, form }) => {
     ctx.require("staff_attendance:create");
     const site = await requireSite(ctx, ctx.oc, siteId);
     if (site.status !== "active") throw appError("NOT_FOUND");
     const now = Date.now();
     const check = await checkClock(ctx, ctx.oc.org._id, ctx.oc.user._id, "clock_in", now);
     if (check.result !== "ok") throw appError("CONFLICT", "You are already clocked in.");
-    return await insertEvent(ctx, {
+    const active = await resolveActiveForm(ctx, ctx.oc.org._id, siteId, "staff");
+    let checked: Awaited<ReturnType<typeof checkAnswers>> | null = null;
+    if (active) {
+      if (!form) throw appError("VALIDATION", "Please complete the form before you clock in.");
+      if (form.versionId !== active.version._id) throw appError("CONFLICT", "This form was updated. Please reload and try again.");
+      // Staff forms have no file fields, so there is no uploader.
+      checked = await checkAnswers(ctx, ctx.oc.org, active.version, form.answers, null);
+    } else if (form) {
+      throw appError("CONFLICT", "There is no form to answer at this site any more.");
+    }
+    const eventId = await insertEvent(ctx, {
       organizationId: ctx.oc.org._id,
       siteId,
       userId: ctx.oc.user._id,
@@ -425,6 +461,20 @@ export const clockIn = orgMutation({
       at: now,
       source: "app",
     });
+    if (active && checked) {
+      await storeResponse(ctx, {
+        org: ctx.oc.org,
+        siteId,
+        form: active.form,
+        version: active.version,
+        answers: checked.answers,
+        fileIds: checked.fileIds,
+        userId: ctx.oc.user._id,
+        attendanceEventId: eventId,
+        actor: { actorUserId: ctx.oc.user._id },
+      });
+    }
+    return eventId;
   },
 });
 

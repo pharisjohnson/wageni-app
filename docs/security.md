@@ -166,8 +166,8 @@ so the device token fixes org, site and gate; the visitor never supplies them.
   violating bytes. A file can be attached once, only by the uploader (device or
   invitation), only for a field of the matching kind. Every file has
   `deleteAfter` (field `retentionDays`, default 90 days; unclaimed uploads 1 h);
-  `internal.files.purgeExpired` runs daily. Limits: content type is declared by
-  the uploader (not sniffed); never-registered uploads are not swept.
+  `internal.files.purgeExpired` runs daily. The declared content type is now
+  checked against the real bytes and abandoned uploads are swept (see F2).
 - **ID scan** is read-and-discard by default; OCR output is only a suggestion
   that the visitor must confirm. The OCR engine is a stub: when one is chosen,
   review whether the image leaves the device.
@@ -177,17 +177,110 @@ so the device token fixes org, site and gate; the visitor never supplies them.
 - **Invitations.** Token = 256 random bits, only its SHA-256 stored; shown once.
   Every failure (unknown, malformed, expired, cancelled, used, suspended org,
   inactive site) returns the same `{status:"unavailable"}`. Single use. Global
-  public rate limit (120/min) protects the database; per-IP limits need the edge
-  (Vercel Firewall), a hardening (H1) item. The page sets `noindex` and
-  `no-referrer`. The raw link is passed to the notifications scheduler job once;
-  N1 redacts it after sending.
+  public rate limit (120/min) protects the database; per-IP limits are in F2
+  below. The page sets `noindex` and `no-referrer`. The raw link is passed to the
+  notifications scheduler job once; N1 redacts it after sending.
+
+## Forms, uploads and invitations, follow-up (F2)
+
+- **Appointment check-in form.** With a published visitor form for the site,
+  `kioskVisitor.checkInAppointment` returns `form_required` and creates nothing.
+  The kiosk calls `kioskForms.formForAppointment` (phone re-verified, same
+  failed-lookup throttle) and then `kioskForms.checkInAppointmentWithForm`,
+  which validates with the shared `validateAnswers`, creates the visit through
+  `admitAppointment` and stores the response with visit, appointment and form
+  version. Name, phone, email, company and purpose already held by the
+  appointment are filled on the server and never sent to the screen (so a
+  stranger who knows only a phone number learns nothing new); a stored value the
+  field would reject is asked for instead. If the visitor already answered
+  through their invitation link, they are not asked again. Invalid answers throw
+  before the visit exists.
+- **Staff forms** (audience "staff"). Required at clock-in, at the kiosk and in
+  `/app/attendance`, only when one is published for the site. The kiosk keeps the
+  PIN rules: `identify` returns the form only after the PIN verified and only when
+  a clock-in is possible; `record` re-verifies the PIN and returns (never throws)
+  `form_required`, `form_stale` or `form_invalid`, so the failed-PIN counter and
+  lockout are unaffected. Answers go through `validateAnswers`, are stored with
+  `userId`, `siteId` and `attendanceEventId`, and audited against the person or
+  device. Managers (`staff_attendance:read_site`, within their sites) and the
+  person read them via `forms.staffResponses`; sensitive values are withheld and
+  revealed only through the audited `forms.revealSensitive`. The publish rules
+  refuse visit mappings and file, photo, signature and ID fields on staff forms.
+  Reception recording a clock-in on someone's behalf and approved corrections do
+  not ask for the form.
+- **Per-field retention for every answer.** Each answer lives for its field's
+  `retentionDays`, else the organization period (visitor forms: visitor records;
+  staff forms: attendance), clamped to the organization minimum in
+  `lib/retention.ts` (30 days visitor, 365 days staff) and the 3650 day maximum.
+  `formRetention.redactExpired` (internal, daily via `retention.sweepAll`)
+  replaces due values with the tombstone `{redacted:true}`; the response row, its
+  form version and its subject stay. It reads only due rows through the
+  `by_org_redaction` index (each row carries the next time to look at it, at most
+  30 days ahead, so a shortened organization period catches up), works in bounded
+  batches, supports `dryRun`, and writes a `form_answers.redacted` audit entry with
+  counts only (responses, answers, sensitive answers). File answers are left to
+  `files.deleteAfter`.
+- **Upload sweep.** Every upload URL records an `uploadIntents` row (cleared at
+  registration; an uploader may hold 20 open ones). `files.sweepOrphans` (every
+  30 minutes, bounded batches) deletes expired intents, unclaimed `pending` files
+  past their TTL, and blobs with no `files` row. The blob scan walks storage in
+  creation order from a persisted watermark up to two hours ago, so each blob is
+  judged once. It assumes all blobs in this deployment come from these upload
+  flows.
+- **Content verification.** `registerUpload` records the file `pending` and
+  schedules `internal.filesVerify.verify` (an action: the only place bytes can be
+  read). It checks magic bytes (JPEG, PNG, WebP, PDF) against the declared type
+  and the kind's allowed types (signatures: PNG only), and the real size against
+  the recorded size and limit. Pass: `verified`. Fail: bytes deleted, file marked
+  `rejected` (`file.rejected` audit entry, reason code only), and the answer shows
+  "did not pass the content check". `forms.openFile` refuses anything not
+  `verified`. Kiosk and invitation uploads share this path. A file can be attached
+  while verification is still running; if it is rejected afterwards its bytes are
+  gone and the answer says so.
+- **Per-IP limits on the public invitation page.** Convex cannot see IPs, so the
+  invite page calls Next.js route handlers (`app/api/invite/[action]`), which
+  read the client address from `x-real-ip` / `x-vercel-forwarded-for` /
+  `x-forwarded-for` (or `CLIENT_IP_HEADER`), hash it with HMAC-SHA256 keyed by
+  `INVITE_PROXY_SECRET`, and call Convex with `{ proxySecret, ipHash }`. Convex
+  compares the secret in constant time (digests compared, so length and position
+  do not leak) and counts `ip:<scope>:<hash>` in `publicRateLimits` (lookup 60 per
+  minute, uploads 30 per 5 minutes, submit 15 per 10 minutes, per client), then
+  applies the older global limits. The functions `invitations.lookup`
+  (now a mutation), `generateUploadUrl`, `registerUploaded` and `submit` reject
+  any call without the secret, so the limits cannot be skipped by calling Convex
+  directly. No secret configured = refused (fails closed); `ALLOW_UNPROXIED_INVITES`
+  is an explicit development-only escape hatch. Raw IPs are never sent to Convex
+  or stored; stale counters are swept daily. Request bodies are capped at 512 KB.
+  **Trust assumption:** the platform must overwrite the client IP headers (Vercel
+  does). Elsewhere, set `CLIENT_IP_HEADER` to a header your proxy controls, or
+  clients can rotate `x-forwarded-for` to dodge the limit. A request with no
+  readable IP shares one `unknown` bucket. **Vercel Firewall rules (WAF rate
+  limiting, bot protection) are an additional layer, not a replacement:** they act
+  before the function runs and also protect the upload POST itself.
+- **Absolute invitation links.** `APP_BASE_URL` (Convex env) wins. Otherwise the
+  signed-in browser sends `window.location.origin` and the server accepts it only
+  as a clean `https` origin (or `http://localhost` / `127.0.0.1` / `[::1]` when
+  `ALLOW_LOCAL_ORIGIN=true`); credentials, paths, queries, fragments and other
+  schemes are ignored and the link stays a path. Without `APP_BASE_URL`, any
+  https origin from a signed-in member is accepted, so a member could point their
+  own invitation at a host they control; set `APP_BASE_URL` in production.
 
 ## Known gaps / backlog
 
-- Rate limiting for public endpoints (kiosk registration arrives in Phase 2,
-  and `@convex-dev/rate-limiter` should go in alongside it).
-- Invitations (Phase 4). Members can currently only be added through the
-  data layer.
+- Per-IP rate limiting covers the public invitation functions only. Kiosk calls
+  are limited per paired device (60 per minute, lookup lockouts) and are not
+  per-IP, and the read-only `organizations.getPublicBySlug` (branding for the
+  kiosk welcome screen) is unlimited because a query cannot count. Direct
+  uploads of bytes to Convex storage URLs are not proxied (the URLs are one-shot
+  and issued only after the per-IP check).
+- Content verification checks signatures, type and size, not that an image or
+  PDF is well formed or free of embedded active content. Files are only shown
+  as images or offered as downloads.
+- Staff forms cannot contain files (no signed-in upload path), and a clock-in
+  recorded on someone's behalf does not collect the form.
+- Answer redaction does not rewrite free text kept elsewhere (appointment
+  purpose, decision notes) or the `visitors` record, which P1's anonymisation
+  covers.
 - Content Security Policy and security headers in `next.config.ts`.
 - Retention policies and data-subject request tooling (Phase 5).
 - Signed outbound webhooks with SSRF protection (inbound delivery receipts are done, see Notifications).

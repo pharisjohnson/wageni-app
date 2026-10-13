@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { kioskMutation } from "./lib/kiosk";
-import { registerUpload } from "./lib/files";
+import { openUploadIntent, registerUpload } from "./lib/files";
 import { takePublicLimit } from "./lib/publicLimit";
 import { vFileKind } from "./validators";
 
@@ -16,8 +16,9 @@ const UPLOAD_WINDOW_MS = 5 * 60_000;
 /** Step 1: a one-shot upload URL. */
 export const generateUploadUrl = kioskMutation({
   args: { kind: vFileKind },
-  handler: async (ctx) => {
+  handler: async (ctx, { kind }) => {
     await takePublicLimit(ctx, `upload:${ctx.kiosk.device._id}`, UPLOADS_PER_WINDOW, UPLOAD_WINDOW_MS);
+    await openUploadIntent(ctx, ctx.kiosk.org._id, { kioskDeviceId: ctx.kiosk.device._id }, kind);
     return await ctx.storage.generateUploadUrl();
   },
 });

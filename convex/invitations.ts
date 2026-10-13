@@ -1,15 +1,16 @@
 import { v } from "convex/values";
 import { autoFillAnswers, invitationCreateSchema, invitationSubmitSchema } from "../lib/validation/forms";
-import { mutation, query, type QueryCtx } from "./_generated/server";
+import { mutation, type QueryCtx } from "./_generated/server";
 import { hasSiteAccess, requireSite } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
 import { appError } from "./lib/errors";
-import { registerUpload } from "./lib/files";
+import { openUploadIntent, registerUpload } from "./lib/files";
 import { checkAnswers, fieldsOf, resolveActiveForm, servedFields, storeResponse } from "./lib/formResponses";
 import { orgMutation, orgQuery } from "./lib/functions";
-import { onInvitationCreated } from "./lib/invitationHooks";
+import { absoluteInviteLink, onInvitationCreated } from "./lib/invitationHooks";
 import { generateInviteToken, hashInviteToken, isInviteTokenShape } from "./lib/invitationToken";
 import { requireApproval } from "./lib/policy";
+import { proxyArgs, takeIpLimit } from "./lib/proxy";
 import { takePublicLimit } from "./lib/publicLimit";
 import { parseOrThrow } from "./lib/validate";
 import { requireHost, upsertVisitor } from "./lib/visitors";
@@ -28,11 +29,23 @@ import { vFileKind, vRawAnswers } from "./validators";
  * `{ status: "unavailable" }`. A used link cannot be replayed. Tokens carry
  * 256 bits, so guessing is infeasible; global fixed-window limits protect the
  * database from floods (see convex/lib/publicLimit.ts).
+ *
+ * These four are reachable ONLY through the Next.js route handlers in
+ * `app/api/invite/*`: every call must carry `proxySecret` (checked in constant
+ * time against INVITE_PROXY_SECRET) and the caller's `ipHash`, and spends from
+ * a per-IP budget (convex/lib/proxy.ts). A direct call without the secret is
+ * refused with FORBIDDEN, so the per-IP limits cannot be bypassed.
  */
 
 const MAX_LIST = 100;
 const PUBLIC_LIMIT = 120;
 const PUBLIC_WINDOW_MS = 60_000;
+/** Per client (hashed IP) budgets, applied before the global ones. */
+export const IP_LIMITS = {
+  lookup: { max: 60, windowMs: 60_000 },
+  upload: { max: 30, windowMs: 5 * 60_000 },
+  submit: { max: 15, windowMs: 10 * 60_000 },
+} as const;
 const MAX_UPLOADS_PER_INVITATION = 10;
 
 const UNAVAILABLE = { status: "unavailable" as const };
@@ -66,8 +79,10 @@ export const create = orgMutation({
     scheduledStart: v.number(),
     scheduledEnd: v.number(),
     formId: v.optional(v.id("forms")),
+    /** `window.location.origin` of the creating browser; validated, see lib/invite/origin.ts. */
+    origin: v.optional(v.string()),
   },
-  handler: async (ctx, { siteId, hostUserId, formId, ...rest }) => {
+  handler: async (ctx, { siteId, hostUserId, formId, origin, ...rest }) => {
     ctx.require("appointments:create");
     const site = await requireSite(ctx, ctx.oc, siteId);
     const input = parseOrThrow(invitationCreateSchema, rest);
@@ -109,8 +124,9 @@ export const create = orgMutation({
     });
     const link = `/invite/${token}`;
     const invitation = (await ctx.db.get(id))!;
-    await onInvitationCreated(ctx, { invitation, link });
-    return { invitationId: id, token, path: link };
+    await onInvitationCreated(ctx, { invitation, link, origin });
+    // `url` is absolute when APP_BASE_URL or a valid origin is known, else equal to `path`.
+    return { invitationId: id, token, path: link, url: absoluteInviteLink(link, origin) };
   },
 });
 
@@ -175,9 +191,10 @@ export const cancel = orgMutation({
 // ---------- Public side (no sign-in; the token is the credential) ----------
 
 /** What the invitee sees. Generic `unavailable` for every kind of failure. */
-export const lookup = query({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
+export const lookup = mutation({
+  args: { ...proxyArgs, token: v.string() },
+  handler: async (ctx, { token, ...proxy }) => {
+    await takeIpLimit(ctx, proxy, "invite_lookup", IP_LIMITS.lookup.max, IP_LIMITS.lookup.windowMs);
     const found = await resolveInvitation(ctx, token);
     if (!found) return UNAVAILABLE;
     const { inv, org, site } = found;
@@ -209,21 +226,24 @@ export const lookup = query({
 });
 
 export const generateUploadUrl = mutation({
-  args: { token: v.string(), kind: vFileKind },
-  handler: async (ctx, { token }) => {
+  args: { ...proxyArgs, token: v.string(), kind: vFileKind },
+  handler: async (ctx, { token, kind, ...proxy }) => {
+    await takeIpLimit(ctx, proxy, "invite_upload", IP_LIMITS.upload.max, IP_LIMITS.upload.windowMs);
     await takePublicLimit(ctx, "invite_upload", PUBLIC_LIMIT, PUBLIC_WINDOW_MS);
     const found = await resolveInvitation(ctx, token);
     if (!found) return UNAVAILABLE;
     const count = found.inv.uploadCount ?? 0;
     if (count >= MAX_UPLOADS_PER_INVITATION) throw appError("RATE_LIMITED");
+    await openUploadIntent(ctx, found.org._id, { invitationId: found.inv._id }, kind);
     await ctx.db.patch(found.inv._id, { uploadCount: count + 1 });
     return { status: "ok" as const, uploadUrl: await ctx.storage.generateUploadUrl() };
   },
 });
 
 export const registerUploaded = mutation({
-  args: { token: v.string(), storageId: v.id("_storage"), kind: vFileKind },
-  handler: async (ctx, { token, storageId, kind }) => {
+  args: { ...proxyArgs, token: v.string(), storageId: v.id("_storage"), kind: vFileKind },
+  handler: async (ctx, { token, storageId, kind, ...proxy }) => {
+    await takeIpLimit(ctx, proxy, "invite_upload", IP_LIMITS.upload.max, IP_LIMITS.upload.windowMs);
     await takePublicLimit(ctx, "invite_upload", PUBLIC_LIMIT, PUBLIC_WINDOW_MS);
     const found = await resolveInvitation(ctx, token);
     if (!found) {
@@ -248,6 +268,7 @@ export const registerUploaded = mutation({
  */
 export const submit = mutation({
   args: {
+    ...proxyArgs,
     token: v.string(),
     details: v.object({
       name: v.string(),
@@ -258,7 +279,8 @@ export const submit = mutation({
     versionId: v.optional(v.id("formVersions")),
     answers: vRawAnswers,
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { proxySecret, ipHash, ...args }) => {
+    await takeIpLimit(ctx, { proxySecret, ipHash }, "invite_submit", IP_LIMITS.submit.max, IP_LIMITS.submit.windowMs);
     await takePublicLimit(ctx, "invite_submit", PUBLIC_LIMIT, PUBLIC_WINDOW_MS);
     const found = await resolveInvitation(ctx, args.token);
     if (!found) {

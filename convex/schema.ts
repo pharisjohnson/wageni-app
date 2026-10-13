@@ -18,6 +18,7 @@ import {
   vCorrectionStatus,
   vAnswers,
   vFileKind,
+  vVerifyStatus,
   vFormAudience,
   vFormField,
   vFormStatus,
@@ -333,12 +334,18 @@ export default defineSchema({
     visitId: v.optional(v.id("visits")),
     appointmentId: v.optional(v.id("appointments")),
     userId: v.optional(v.id("users")),
+    // F2: the clock-in a staff response was given with.
+    attendanceEventId: v.optional(v.id("attendanceEvents")),
     answers: vAnswers,
+    // F2: when this row should next be looked at by the answer-retention job
+    // (earliest field deadline, at most 30 days ahead; far future = nothing left to redact).
+    nextRedactionCheck: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_visit", ["visitId"])
     .index("by_appointment", ["appointmentId"])
-    .index("by_org_user", ["organizationId", "userId", "createdAt"]),
+    .index("by_org_user", ["organizationId", "userId", "createdAt"])
+    .index("by_org_redaction", ["organizationId", "nextRedactionCheck"]),
 
   // Private Convex storage objects. `deleteAfter` drives retention; the
   // record outlives the bytes (status "deleted") so answers can say "removed".
@@ -355,11 +362,32 @@ export default defineSchema({
     uploadedByInvitationId: v.optional(v.id("invitations")),
     responseId: v.optional(v.id("formResponses")),
     fieldId: v.optional(v.string()),
+    // F2: magic-byte check result. A file can be opened only once "verified".
+    verifyStatus: v.optional(vVerifyStatus),
+    verifiedAt: v.optional(v.number()),
+    rejectedReason: v.optional(v.string()),
     deleteAfter: v.number(),
     createdAt: v.number(),
   })
     .index("by_status_delete_after", ["status", "deleteAfter"])
     .index("by_storage", ["storageId"]),
+
+  // F2: one row per upload URL handed out, cleared when the upload is
+  // registered. Rows that expire uncleared mean a blob may be orphaned.
+  uploadIntents: defineTable({
+    organizationId: v.id("organizations"),
+    kioskDeviceId: v.optional(v.id("kioskDevices")),
+    invitationId: v.optional(v.id("invitations")),
+    kind: vFileKind,
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_expires", ["expiresAt"])
+    .index("by_device", ["kioskDeviceId", "createdAt"])
+    .index("by_invitation", ["invitationId", "createdAt"]),
+
+  // F2: tiny key/number store for background sweeps (e.g. the orphan-scan watermark).
+  sweepState: defineTable({ key: v.string(), value: v.number() }).index("by_key", ["key"]),
 
   invitations: defineTable({
     organizationId: v.id("organizations"),
@@ -392,7 +420,9 @@ export default defineSchema({
     key: v.string(),
     windowStart: v.number(),
     count: v.number(),
-  }).index("by_key", ["key"]),
+  })
+    .index("by_key", ["key"])
+    .index("by_window", ["windowStart"]),
   // --- end F1
 
   // --- N1: notifications

@@ -54,8 +54,8 @@ function CreateForm({ onDone }: { onDone: () => void }) {
       </Field>
       <Field id="nf-audience" label="Who fills it in?">
         <NativeSelect id="nf-audience" {...form.register("audience")}>
-          <option value="visitor">Visitors</option>
-          <option value="staff">Staff</option>
+          <option value="visitor">Visitors (kiosk and invitation link)</option>
+          <option value="staff">Staff (asked when they clock in)</option>
         </NativeSelect>
       </Field>
       <Field id="nf-site" label="Site" help="Leave on all sites unless this form is only for one.">
@@ -124,7 +124,9 @@ export default function FormsPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">{f.name}</span>
                   <span className="flex gap-2">
-                    <Badge variant="outline">{f.audience === "visitor" ? "Visitors" : "Staff"}</Badge>
+                    <Badge variant={f.audience === "visitor" ? "outline" : "secondary"}>
+                      {f.audience === "visitor" ? "Visitors" : "Staff, asked at clock-in"}
+                    </Badge>
                     <Badge variant={f.status === "published" ? "default" : "secondary"}>
                       {f.status === "published" ? `Live v${f.publishedVersion}` : f.status}
                     </Badge>

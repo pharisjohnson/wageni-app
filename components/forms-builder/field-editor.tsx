@@ -8,7 +8,6 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CHOICE_TYPES,
-  FIELD_TYPES,
   FIELD_TYPE_LABELS,
   ID_SOURCES,
   ID_SOURCE_LABELS,
@@ -17,7 +16,7 @@ import {
   type IdSource,
   type MapsTo,
 } from "@/lib/validation/forms";
-import { cleanField, compatibleTargets, type DraftField } from "./builder-utils";
+import { cleanField, compatibleTargets, fieldTypesFor, type DraftField } from "./builder-utils";
 
 type Values = {
   type: FieldType;
@@ -82,7 +81,10 @@ export function FieldEditor({
   field,
   earlier,
   onChange,
+  audience = "visitor",
 }: {
+  /** Staff forms have no visit to fill and no file fields. */
+  audience?: "visitor" | "staff";
   field: DraftField;
   /** Fields before this one: the only ones a "show if" rule may depend on. */
   earlier: DraftField[];
@@ -109,7 +111,7 @@ export function FieldEditor({
     <div className="grid gap-4 sm:grid-cols-2" aria-label={`Settings for ${field.label}`}>
       <Field id="fe-type" label="Field type">
         <NativeSelect id="fe-type" {...register("type")}>
-          {FIELD_TYPES.map((t) => (
+          {fieldTypesFor(audience).map((t) => (
             <option key={t} value={t}>
               {FIELD_TYPE_LABELS[t]}
             </option>
@@ -159,23 +161,29 @@ export function FieldEditor({
       <Field
         id="fe-retention"
         label="Keep for (days)"
-        help={isFile ? "Stored files are deleted after this. Blank = 90 days." : "Blank = follow the organization's retention."}
+        help={
+          isFile
+            ? "Stored files are deleted after this. Blank = 90 days."
+            : `The answer is removed after this many days (the form keeps a note that it was removed). Blank = ${audience === "staff" ? "the organization's attendance retention" : "the organization's visitor-record retention"}. Never shorter than the organization minimum (${audience === "staff" ? "365" : "30"} days).`
+        }
       >
         <Input id="fe-retention" type="number" min={1} max={3650} {...register("retentionDays")} />
       </Field>
 
-      <Field id="fe-maps" label="Fill into" help="Copies the answer into the visit record.">
-        <NativeSelect id="fe-maps" {...register("mapsTo")}>
-          <option value="">Nothing (kept in the form response)</option>
-          {compatibleTargets(v.type).map((t) => (
-            <option key={t} value={t}>
-              {MAPS_TO_LABELS[t]}
-            </option>
-          ))}
-        </NativeSelect>
-      </Field>
+      {audience === "visitor" && (
+        <Field id="fe-maps" label="Fill into" help="Copies the answer into the visit record.">
+          <NativeSelect id="fe-maps" {...register("mapsTo")}>
+            <option value="">Nothing (kept in the form response)</option>
+            {compatibleTargets(v.type).map((t) => (
+              <option key={t} value={t}>
+                {MAPS_TO_LABELS[t]}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+      )}
 
-      {(v.type === "short_text" || v.type === "date") && (
+      {audience === "visitor" && (v.type === "short_text" || v.type === "date") && (
         <Field id="fe-idsource" label="Suggest from ID scan" help="Pre-filled for the visitor to check, never trusted blindly.">
           <NativeSelect id="fe-idsource" {...register("idSource")}>
             <option value="">No suggestion</option>
