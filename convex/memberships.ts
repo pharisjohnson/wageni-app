@@ -8,6 +8,7 @@ import {
 } from "../lib/permissions";
 import type { OrgContext } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
+import { requireWithinLimit } from "./lib/entitlements";
 import { appError } from "./lib/errors";
 import { orgMutation, orgQuery } from "./lib/functions";
 import type { MutationCtx } from "./_generated/server";
@@ -139,6 +140,8 @@ export const setStatus = orgMutation({
     ctx.require("members:manage");
     const target = await loadManageableMember(ctx, membershipId);
     if (status === "invited") throw appError("VALIDATION");
+    // Re-activating a member counts against the plan's staff limit.
+    if (status === "active" && target.status !== "active") await requireWithinLimit(ctx, "staff");
     await ctx.db.patch(membershipId, { status, updatedAt: Date.now() });
     await writeAudit(ctx, {
       organizationId: ctx.oc.org._id,

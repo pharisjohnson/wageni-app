@@ -10,6 +10,7 @@ import { isRedactedAnswer } from "../lib/validation/forms";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hasSiteAccess, requireSite } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
+import { requireFeature, requireWithinLimit } from "./lib/entitlements";
 import { appError } from "./lib/errors";
 import { fieldsOf } from "./lib/formResponses";
 import { orgMutation, orgQuery, type OrgCtx } from "./lib/functions";
@@ -132,6 +133,8 @@ export const create = orgMutation({
   },
   handler: async (ctx, args) => {
     ctx.require("forms:manage");
+    await requireFeature(ctx, "custom_forms");
+    await requireWithinLimit(ctx, "forms");
     const details = parseOrThrow(formDetailsSchema, args);
     await checkSite(ctx, args.siteId);
     const draftFields = parseFields(args.fields ?? []);
@@ -197,6 +200,7 @@ export const publish = orgMutation({
     ctx.require("forms:manage");
     const form = await loadForm(ctx, formId);
     if (form.status === "archived") throw appError("CONFLICT", "Restore this form before publishing it.");
+    await requireFeature(ctx, "custom_forms");
     const fields = parseFields(form.draftFields);
     const problems = publishProblems(fields, {
       audience: form.audience,
@@ -258,6 +262,8 @@ export const restore = orgMutation({
     ctx.require("forms:manage");
     const form = await loadForm(ctx, formId);
     if (form.status !== "archived") return;
+    await requireFeature(ctx, "custom_forms");
+    await requireWithinLimit(ctx, "forms");
     await ctx.db.patch(formId, { status: "draft", updatedAt: Date.now() });
     await writeAudit(ctx, {
       organizationId: ctx.oc.org._id,

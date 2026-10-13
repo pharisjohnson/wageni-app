@@ -4,6 +4,7 @@ import type { MutationCtx } from "../_generated/server";
 import { FILE_LIMITS, PENDING_FILE_TTL_MS, type FileKind } from "../../lib/validation/forms";
 import { writeAudit } from "./audit";
 import { appError } from "./errors";
+import { bumpUsage } from "./usage";
 
 /**
  * File storage rules. Files are private Convex storage objects. Nothing here
@@ -163,6 +164,8 @@ export async function registerUpload(
     deleteAfter: now + PENDING_FILE_TTL_MS,
     createdAt: now,
   });
+  await bumpUsage(ctx, input.organizationId, "files");
+  await bumpUsage(ctx, input.organizationId, "fileBytes", meta.size);
   await clearUploadIntent(ctx, input.uploader, input.kind);
   if (input.verify !== false) await ctx.scheduler.runAfter(0, internal.filesVerify.verify, { fileId });
   return { status: "ok", fileId };

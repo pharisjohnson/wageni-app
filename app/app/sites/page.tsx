@@ -16,7 +16,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { errorMessage } from "@/lib/auth/errors";
+import { toastError } from "@/components/billing/plan-toast";
 import { useActiveOrg } from "@/lib/org/active-org";
 import { browserTimeZone, timeZoneOptions } from "@/lib/time-zones";
 import { gateSchema, siteSchema, type GateInput, type SiteInput } from "@/lib/validation/organization";
@@ -43,7 +43,7 @@ function NewSiteForm({ onDone }: { onDone: () => void }) {
       toast.success("Site created");
       onDone();
     } catch (e) {
-      toast.error(errorMessage(e));
+      toastError(e);
     }
   });
 
@@ -91,7 +91,7 @@ function NewGateForm({ siteId }: { siteId: Id<"sites"> }) {
       form.reset({ name: "", type: values.type });
       toast.success("Gate added");
     } catch (e) {
-      toast.error(errorMessage(e));
+      toastError(e);
     }
   });
 

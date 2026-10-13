@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
+import { UpgradeNotice, useEntitlements } from "@/components/billing/upgrade-notice";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -94,6 +95,27 @@ function useConfig() {
   return useQuery(api.notifications.channelConfig, can("integrations:manage") ? { organizationId } : "skip");
 }
 
+function WebhooksCard() {
+  const ent = useEntitlements();
+  if (ent === undefined) return null;
+  if (ent.enforced && !ent.features.includes("webhooks_integrations")) {
+    return (
+      <UpgradeNotice
+        title="Webhooks and integrations are not in your plan"
+        message="Outbound webhooks and third-party integrations are part of the Enterprise plan."
+      />
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Webhooks and integrations</CardTitle>
+        <CardDescription>Included in your plan. Outbound webhooks are not built yet; nothing to configure.</CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
 export default function IntegrationsPage() {
   const { can } = useActiveOrg();
   const config = useConfig();
@@ -134,6 +156,7 @@ export default function IntegrationsPage() {
               </CardDescription>
             </CardHeader>
           </Card>
+          <WebhooksCard />
         </>
       )}
     </div>

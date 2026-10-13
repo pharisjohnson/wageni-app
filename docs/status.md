@@ -146,7 +146,6 @@ Still limited: per-IP limiting covers the invitation functions only (kiosk calls
 ## Not started (by phase)
 
 4. Invitations, form builder (versioned), approval/notification policies
-7. Plans, usage metering, billing provider, trials
 8. Hardening, monitoring, backups, deployment docs, dedicated deployments
 
 ## Manual checks (signed-in layout, not automatable without Clerk/Convex credentials)
@@ -156,3 +155,18 @@ Still limited: per-IP limiting covers the invitation functions only (kiosk calls
 - Mobile (< md): the hamburger opens the navigation sheet, choosing a link closes it, and the active link has `aria-current="page"`.
 - Platform console at 375px: the nav row sits under the title instead of being hidden; "Platform overview" back link shows on sub-pages; "Exit to app" works.
 - Kiosk (needs a seeded organization): at iPad portrait and landscape no tile is clipped; Back and Start over are at least 48px tall on every sub-screen; Tab shows a visible ring on the Visitor/Staff tiles; 90 seconds idle on a sub-screen returns to the welcome screen.
+
+## Plans, entitlements and billing (B1, Phase 7)
+
+| Area | Status |
+| --- | --- |
+| Entitlement model (tiers, features, limits as data), `lib/plans.ts` derived from it | Done |
+| Clerk Billing for users: owner's subscription = organization plan; `subscriptions` table; Svix-verified `POST /webhooks/clerk-billing` (idempotent, replay window, ordering) | Done (tests only) |
+| Enforcement (server): sites, gates, staff re-activation, custom forms (+count), audit log, custom retention, live notifications (dry-run on Starter, monthly cap), read-only extra sites after downgrade | Done; `BILLING_ENFORCEMENT` off by default |
+| Usage counters (visits, live messages, files) + `/app/billing` (plan, meters, Clerk `PricingTable`) + `/platform/usage` | Done |
+| `PLAN_LIMIT` error + upgrade prompts (toast action, `UpgradeNotice`, `FeatureGate`) | Done |
+| Operator checklist `docs/billing.md` | Done |
+| Tests: `tests/unit/billing.test.ts`, `tests/convex/billing.test.ts` | Passing |
+| Real Clerk/Stripe account, live webhook payloads, `PricingTable` rendering, billing UI in a browser | **Not done** (no account was used) |
+| Known launch risk: Clerk Billing fails 3D Secure payments; USD only; no M-Pesa, tax or refunds | See `docs/billing.md` |
+| Not enforced: visits per month (metered only), outbound webhooks/integrations (no backend yet), gating of kiosk/check-in at over-limit sites | By design / later |

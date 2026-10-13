@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
-import { errorMessage } from "@/lib/auth/errors";
+import { toastError } from "@/components/billing/plan-toast";
 import { useActiveOrg } from "@/lib/org/active-org";
 import { RETENTION_LABELS, retentionSchema, type Retention } from "@/lib/retention";
 
@@ -56,7 +56,7 @@ export function RetentionSettings() {
       setDraft(null);
       toast.success("Retention settings saved");
     } catch (e) {
-      toast.error(errorMessage(e));
+      toastError(e);
     } finally {
       setSaving(false);
     }
@@ -73,6 +73,11 @@ export function RetentionSettings() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!current.canCustomize && (
+          <p className="text-sm text-muted-foreground" role="status">
+            Your plan uses the default retention periods. Custom retention is part of the Enterprise plan.
+          </p>
+        )}
         <form
           className="grid max-w-xl gap-4"
           noValidate
@@ -95,10 +100,11 @@ export function RetentionSettings() {
                 value={values[k]}
                 onChange={(e) => setDraft({ ...values, [k]: e.target.value })}
                 aria-invalid={Boolean(errors[k])}
+                disabled={!current.canCustomize}
               />
             </Field>
           ))}
-          <Button type="submit" className="justify-self-start" disabled={saving || !dirty || !parsed.success}>
+          <Button type="submit" className="justify-self-start" disabled={saving || !dirty || !parsed.success || !current.canCustomize}>
             {saving ? "Saving…" : "Save retention"}
           </Button>
         </form>

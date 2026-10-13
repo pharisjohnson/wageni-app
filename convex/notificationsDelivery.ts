@@ -4,7 +4,9 @@ import { RECEIPT_STATUSES } from "../lib/notifications/webhook";
 import { renderTemplate, sensitivePlaceholders, TEMPLATES, isEventType } from "../lib/notifications/templates";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
+import { getOrgEntitlements, hasFeature } from "./lib/entitlements";
 import { backoffFor, getSettings, MAX_ATTEMPTS } from "./lib/notify";
+import { bumpUsage, readUsage } from "./lib/usage";
 
 /** A claimed row is not picked up again for this long (guards against double sends). */
 const CLAIM_LOCK_MS = 2 * 60 * 1000;
@@ -26,6 +28,18 @@ export const claim = internalMutation({
       await ctx.db.patch(outboxId, { status: "skipped", lastError: "organization_unavailable" });
       return null;
     }
+    // Plan: without the `notifications` feature, messages are recorded but only
+    // ever dry-run (never sent through a real provider). With it, the monthly
+    // message limit applies to real sends.
+    const ent = await getOrgEntitlements(ctx, row.organizationId, now);
+    const live = hasFeature(ent, "notifications");
+    if (live && ent.enforced) {
+      const limit = ent.limits.notificationsPerMonth;
+      if (limit !== null && (await readUsage(ctx, row.organizationId, "notifications", now)) >= limit) {
+        await ctx.db.patch(outboxId, { status: "skipped", lastError: "plan_limit" });
+        return null;
+      }
+    }
     const settings = await getSettings(ctx, row.organizationId);
     const rendered = renderTemplate(row.eventType, row.payload, {
       override: settings?.templateOverrides[row.eventType],
@@ -39,6 +53,7 @@ export const claim = internalMutation({
       subject: rendered.subject,
       body: rendered.body,
       senderName: settings?.senderName ?? org.name,
+      dryRunOnly: !live,
     };
   },
 });
@@ -65,6 +80,7 @@ export const complete = internalMutation({
       return redacted;
     };
     if (ok) {
+      if (mode === "live") await bumpUsage(ctx, row.organizationId, "notifications", 1, now);
       await ctx.db.patch(outboxId, {
         status: "sent",
         providerMessageId,
@@ -105,7 +121,8 @@ export const deliver = internalAction({
   handler: async (ctx, { outboxId }) => {
     const job = await ctx.runMutation(internal.notificationsDelivery.claim, { outboxId });
     if (!job) return;
-    const channel = getChannel(job.channel, process.env, {
+    // `dryRunOnly` hands the adapter an empty environment so no provider is configured.
+    const channel = getChannel(job.channel, job.dryRunOnly ? {} : process.env, {
       placeholderOrder: (key) => TEMPLATES[key].placeholders,
     });
     try {

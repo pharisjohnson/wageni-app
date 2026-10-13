@@ -1,4 +1,5 @@
 import { httpRouter } from "convex/server";
+import { verifySvix } from "../lib/billing/svix";
 import { RECEIPT_STATUSES, verifyWebhook, type ReceiptStatus } from "../lib/notifications/webhook";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -57,5 +58,40 @@ http.route({
     return reply(200, { ok: true });
   }),
 });
+
+// --- B1: Clerk Billing webhooks (Svix-signed). Env `CLERK_WEBHOOK_SECRET` (whsec_...).
+// Unset = the route does not exist (404). Every rejection is the same generic 4xx.
+const MAX_BILLING_BODY_BYTES = 256 * 1024;
+
+http.route({
+  path: "/webhooks/clerk-billing",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const secret = process.env.CLERK_WEBHOOK_SECRET;
+    if (!secret) return reply(404);
+    const declared = Number(request.headers.get("content-length") ?? "0");
+    if (declared > MAX_BILLING_BODY_BYTES) return reply(400, { error: "invalid_request" });
+    const body = await request.text();
+    if (body.length > MAX_BILLING_BODY_BYTES) return reply(400, { error: "invalid_request" });
+    const id = request.headers.get("svix-id");
+    const valid = await verifySvix({
+      secret,
+      id,
+      timestamp: request.headers.get("svix-timestamp"),
+      signature: request.headers.get("svix-signature"),
+      body,
+    });
+    if (!valid || !id) return reply(401, { error: "invalid_request" });
+    let payload: unknown;
+    try {
+      payload = JSON.parse(body);
+    } catch {
+      return reply(400, { error: "invalid_request" });
+    }
+    await ctx.runMutation(internal.billingWebhook.applyEvent, { eventId: id, payload });
+    return reply(200, { ok: true });
+  }),
+});
+// --- end B1
 
 export default http;

@@ -17,3 +17,27 @@ export function errorCode(error: unknown): string | null {
   }
   return null;
 }
+
+export type PlanLimitInfo = {
+  kind: "feature" | "limit";
+  key: string;
+  message: string;
+  limit?: number;
+  requiredTier?: string;
+};
+
+/** Details of a PLAN_LIMIT error (a feature or limit the plan does not include), else null. */
+export function planLimitInfo(error: unknown): PlanLimitInfo | null {
+  if (!(error instanceof ConvexError)) return null;
+  const d = error.data as Partial<PlanLimitInfo> & { code?: unknown };
+  if (d?.code !== "PLAN_LIMIT" || typeof d.message !== "string") return null;
+  return {
+    kind: d.kind === "limit" ? "limit" : "feature",
+    key: typeof d.key === "string" ? d.key : "",
+    message: d.message,
+    limit: typeof d.limit === "number" ? d.limit : undefined,
+    requiredTier: typeof d.requiredTier === "string" ? d.requiredTier : undefined,
+  };
+}
+
+export const isPlanLimit = (error: unknown) => planLimitInfo(error) !== null;

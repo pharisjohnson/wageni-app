@@ -3,6 +3,7 @@
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { Monitor, Cog, User } from "lucide-react";
 import { useMemo, useState } from "react";
+import { FeatureGate } from "@/components/billing/upgrade-notice";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/reports/parts";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,14 @@ function details(metadata: Record<string, string | number | boolean | null> | un
 }
 
 export default function AuditPage() {
+  return (
+    <FeatureGate feature="audit_log">
+      <AuditContent />
+    </FeatureGate>
+  );
+}
+
+function AuditContent() {
   const { organizationId, can } = useActiveOrg();
   const allowed = can("audit:read");
   const actors = useQuery(api.audit.actors, allowed ? { organizationId } : "skip");

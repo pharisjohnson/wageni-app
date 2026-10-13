@@ -115,7 +115,7 @@ const FAQ = [
   },
   {
     q: "What does it cost?",
-    a: "Every plan starts with a free trial. Final prices are still being set, and early users will be asked for their feedback in return for preferred terms.",
+    a: "Starter is free and Business starts with a free trial. Final prices are still being set, and early users will be asked for their feedback in return for preferred terms.",
   },
 ];
 
@@ -142,7 +142,7 @@ export default function HomePage() {
             See how it works
           </Link>
         </div>
-        <p className="text-sm text-muted-foreground">Free trial. No card needed to start.</p>
+        <p className="text-sm text-muted-foreground">Starter is free. No card needed to start.</p>
       </section>
 
       {/* Problem */}
@@ -392,7 +392,7 @@ export default function HomePage() {
       <section id="pricing" className="scroll-mt-20 mx-auto max-w-6xl space-y-8 px-4 pb-20">
         <div className="space-y-2">
           <h2 className="font-display text-3xl font-extrabold tracking-tight">Plans</h2>
-          <p className="text-muted-foreground">Start with a free trial. Plans and pricing are being finalised.</p>
+          <p className="text-muted-foreground">Start free. Plans and pricing are being finalised.</p>
         </div>
         <PricingGrid />
       </section>

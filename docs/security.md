@@ -288,3 +288,13 @@ so the device token fixes org, site and gate; the visitor never supplies them.
 - Backup/restore procedure for Convex (export and import) still needs to be documented and rehearsed.
 - The operator console uses a browser prompt to collect a suspension reason;
   this should be replaced with an in-page dialog.
+
+## Billing and plan enforcement (B1)
+
+- `POST /webhooks/clerk-billing` (`convex/http.ts`): 404 unless `CLERK_WEBHOOK_SECRET` is set; Svix signature (HMAC-SHA256, base64-decoded `whsec_` key) compared in constant time against every `v1` candidate; timestamps outside 5 minutes rejected; 256 KB cap; all failures are the same generic 401/400. Idempotent on `svix-id` (`processedWebhooks`, swept daily after 7 days); older events never overwrite newer rows. Payload contents (names, emails) are neither logged nor stored; `subscriptions` keeps the Clerk user id and plan facts only. The secret is read from the Convex environment only.
+- The webhook is the only writer of `subscriptions`; no client-callable function can change a plan. Plan facts are derived server-side from the organization's owner membership, never from client input.
+- Enforcement is server-side (`convex/lib/entitlements.ts`); UI hiding is cosmetic. `BILLING_ENFORCEMENT` must be exactly `on`. Demo organizations (`isDemo`) bypass it: do not set `isDemo` on real tenants.
+- Plan state is cached nowhere; every restricted call re-reads the owner's subscription rows (bounded to 50). `usageCounters` writes happen inside the same transaction as the metered action.
+- `billing.overview` needs `billing:manage` (owner by default) and shows the owner's display name only to non-holders; `billing.entitlements` is readable by any active member and contains no identity; `billing.platformUsage` is platform-admin only and returns counts and plan names, no tenant records.
+- A past-due owner keeps access 7 days; a missed `ended` webhook cannot grant access forever (3 day stale-period guard).
+- Residual risk: if the webhook endpoint is unreachable or misconfigured, plans do not update (fail-safe: orgs stay on their last known plan until the stale guard expires it). The 3DS limitation of Clerk Billing is a business risk, see `docs/billing.md`.

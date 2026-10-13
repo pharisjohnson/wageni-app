@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { requireFeature } from "./lib/entitlements";
 import { orgQuery } from "./lib/functions";
 
 /**
@@ -23,6 +24,7 @@ export const list = orgQuery({
   },
   handler: async (ctx, { paginationOpts, actorUserId, action, resourceType, fromAt, toAt }) => {
     ctx.require("audit:read");
+    await requireFeature(ctx, "audit_log");
     const orgId = ctx.oc.org._id;
     const lo = fromAt ?? 0;
     const hi = toAt ?? Number.MAX_SAFE_INTEGER;
@@ -98,6 +100,7 @@ export const actors = orgQuery({
   args: {},
   handler: async (ctx) => {
     ctx.require("audit:read");
+    await requireFeature(ctx, "audit_log");
     const memberships = await ctx.db
       .query("memberships")
       .withIndex("by_org", (q) => q.eq("organizationId", ctx.oc.org._id))

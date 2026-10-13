@@ -85,6 +85,18 @@ invitation is created; the server accepts it only if it is a clean `https`
 origin (or `http://localhost` with `ALLOW_LOCAL_ORIGIN`). Anything with
 credentials, a path, query or fragment is ignored and the link stays a path.
 
+## 6. Billing (optional, Phase 7)
+
+Plans use Clerk Billing for users. Nothing is required to develop: with `BILLING_ENFORCEMENT` unset every
+organization has every feature. Set in the **Convex dashboard** when you want to test or launch billing:
+
+| Variable | Purpose |
+| --- | --- |
+| `CLERK_WEBHOOK_SECRET` | `whsec_...` signing secret of the Clerk webhook to `<convex site url>/webhooks/clerk-billing`. Unset = endpoint off (404). |
+| `BILLING_ENFORCEMENT` | `on` enforces plan limits. Anything else (default) = full access. |
+
+Full checklist: `docs/billing.md`.
+
 ## Optional
 
 **Platform operator.** After signing in once:
