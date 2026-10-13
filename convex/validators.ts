@@ -150,6 +150,13 @@ export const vOrgPolicies = v.object({
   requireApproval: v.optional(v.boolean()),
 });
 // --- end F1
+// --- P1: retention periods (days)
+export const vRetention = v.object({
+  visitRecordsDays: v.number(),
+  auditLogDays: v.number(),
+  attendanceDays: v.number(),
+});
+// --- end P1
 
 // --- N1: notifications
 export const vChannel = v.union(v.literal("email"), v.literal("sms"), v.literal("whatsapp"));

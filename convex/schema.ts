@@ -24,6 +24,7 @@ import {
   vInvitationStatus,
   vOrgPolicies,
 
+  vRetention,
   vChannel,
   vNotificationStatus,
 } from "./validators";
@@ -58,6 +59,9 @@ export default defineSchema({
     // --- F1: policy switches (face capture is OFF unless true; approval defaults to required)
     policies: v.optional(vOrgPolicies),
     // --- end F1
+    // --- P1: retention periods in days (resolved + clamped by lib/retention.ts)
+    retention: v.optional(vRetention),
+    // --- end P1
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -113,6 +117,8 @@ export default defineSchema({
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
     company: v.optional(v.string()),
+    // P1: set by retention.purgeExpired once PII has been removed.
+    anonymisedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -137,6 +143,8 @@ export default defineSchema({
     .index("by_org_start", ["organizationId", "scheduledStart"])
     .index("by_site_start", ["siteId", "scheduledStart"])
     .index("by_host_start", ["hostUserId", "scheduledStart"])
+    // P1
+    .index("by_visitor", ["visitorId"])
     // N1: reminder scan across organizations
     .index("by_status_start", ["status", "scheduledStart"]),
 
@@ -154,12 +162,19 @@ export default defineSchema({
     checkedOutAt: v.optional(v.number()),
     checkedOutGateId: v.optional(v.id("gates")),
     checkedOutMethod: v.optional(vCheckOutMethod),
+    // P1: set by retention.purgeExpired when the badge code is cleared.
+    anonymisedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId", "createdAt"])
     .index("by_site_status", ["siteId", "status"])
-    .index("by_appointment", ["appointmentId"]),
+    .index("by_appointment", ["appointmentId"])
+    // --- P1: reports and retention
+    .index("by_site_created", ["siteId", "createdAt"])
+    .index("by_visitor", ["visitorId"])
+    .index("by_org_anon", ["organizationId", "anonymisedAt", "createdAt"]),
+    // --- end P1
 
   // Append-only: never patched or deleted.
   visitEvents: defineTable({
@@ -185,7 +200,13 @@ export default defineSchema({
     resourceId: v.string(),
     metadata: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null()))),
     at: v.number(),
-  }).index("by_org_at", ["organizationId", "at"]),
+  })
+    .index("by_org_at", ["organizationId", "at"])
+    // --- P1: audit log filters
+    .index("by_org_actor_at", ["organizationId", "actorUserId", "at"])
+    .index("by_org_action_at", ["organizationId", "action", "at"])
+    .index("by_org_resource_at", ["organizationId", "resourceType", "at"]),
+    // --- end P1
 
   // --- K1: kiosk device pairing. Only a SHA-256 hash of the token is stored.
   kioskDevices: defineTable({

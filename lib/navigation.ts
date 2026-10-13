@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Plug,
+  ScrollText,
   Settings,
   UserCheck,
   Users,
@@ -43,6 +44,9 @@ export const APP_NAV: NavItem[] = [
   { href: "/app/sites", label: "Sites & gates", icon: Building2, anyOf: ["sites:read"] },
   { href: "/app/forms", label: "Forms", icon: FileText, anyOf: ["forms:manage"] },
   { href: "/app/reports", label: "Reports", icon: BarChart3, anyOf: ["reports:read"] },
+  // P1
+  { href: "/app/audit", label: "Audit log", icon: ScrollText, anyOf: ["audit:read"] },
+  // end P1
   {
     href: "/app/messages",
     label: "Messages",

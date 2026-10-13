@@ -127,12 +127,60 @@ so the device token fixes org, site and gate; the visitor never supplies them.
 - **Tenant isolation.** Every outbox, preferences and settings read goes through `orgQuery`/`orgMutation`. Staff recipients must hold an active membership in the same organization at enqueue time; visitor contacts are copied from that organization's own records. Tests cover cross-org list, stats, retry and settings.
 - **Minimal data.** Payloads hold template placeholders only. Visitor-facing messages contain first name, organization, time and host name; never purpose, company, phone, email or badge code. Host messages carry the visitor's name and site. History responses mask addresses (`j***@x.com`) and omit bodies and provider ids.
 - **Links are secrets.** `invitation_created` payloads hold the invite link only until the message settles (sent or failed), then it is replaced with `[redacted]`.
-- **Retention.** Outbox rows (with the recipient address) are deleted after 90 days by `notificationsCron.purgeOld`. Skipped rows store no address.
+- **Retention.** Outbox rows (with the recipient address) are deleted after 90 days by `notificationsCron.purgeOld`, or sooner when the organization's visitor-record retention (P1) is shorter. Skipped rows store no address.
 - **Abuse limits.** 300 messages per organization per hour (excess is recorded as `skipped: rate_limited`), 5 test sends per hour, addresses must be a single plain email or an E.164 phone (no header injection), placeholder values lose control characters and are length-capped, template overrides may only use each event's own placeholders and no HTML.
 - **Idempotency.** Each trigger passes a stable key, and `(organization, key, channel, recipient)` is checked before insert, so repeats (retries, double clicks, overlapping crons) enqueue once. Delivery is at-least-once: a crash after a provider accepted a message but before the outcome was saved can send it twice. A 2 minute claim lock limits concurrent sends of the same row.
 - **Triggers cannot break business actions.** Hooks are scheduled (`ctx.scheduler.runAfter(0, internal.notifications.onX)`), so an error in notification code never rolls back a check-in or booking.
 - **Webhook** `POST /webhooks/notifications`: HMAC-SHA256 over `timestamp.body` with `NOTIFY_WEBHOOK_SECRET`, constant-time compare, 5 minute replay window (older or future timestamps rejected), 4 KB body cap, one generic 401/400 body for every failure, `200 {"ok":true}` whether or not the id matched (no probing), 404 when no secret is configured. Receipts only move forward (sent, delivered, read), so a replay inside the window is harmless; `failed` is ignored after delivered.
 - **Residual risks.** The shared-secret scheme needs a relay for providers that sign differently. Quiet hours drop (not defer) messages, so a host may miss an arrival alert at night by choice. A staff member can enter any phone number as their own, which the org rate limit bounds. Provider message ids are assumed unique across tenants; an ambiguous match is ignored.
+
+## Reports, exports, audit and retention (P1)
+
+- **Access.** Every report is an `orgQuery` asserting `reports:read` (attendance also needs `staff_attendance:read_site`); the caller's site access and any site filter are applied in `reportScope`, and a foreign or inaccessible `siteId` is NOT_FOUND. Dashboard figures return null for anything the role cannot already see.
+- **Bounded reads.** Date ranges are capped, row reads are capped, and a `truncated` flag is returned rather than silently partial totals.
+- **Exports.** Generated server-side in a mutation so the audit entry (who, report, filters, row count, truncated, sensitive flag) commits with it. Needs `reports:export` (owner, admin). Cells starting with `=`, `+`, `-`, `@`, tab or CR are prefixed with `'`; fields are quoted per RFC 4180. Phone and email are marked sensitive and omitted by default; including them needs `forms:read_sensitive` (to be defined by F1; until then refused). On-screen reports never return contact details.
+- **Audit log.** Readable only with `audit:read`; entries are enriched with the actor (person, paired kiosk device, or system) without exposing other tenants' devices. Nothing in the app edits entries.
+- **Retention.** Settings need `settings:manage`; minimums (visitor records 30 days, audit and attendance 365 days, max 3650) are enforced when saving and again at purge time, so a stored shorter value is clamped. `retention.purgeExpired` is internal-only (not callable by clients), supports `dryRun`, works in bounded batches per organization, and writes a `retention.purged` audit entry with counts. Deleting audit and attendance rows past retention is the one sanctioned exception to append-only; it never goes below a year.
+- **Residual risks.** Anonymisation does not rewrite free text in appointment purpose/decision notes or visit purpose, which staff may have typed names into. Anonymised visitors keep their id, so counts stay linkable to a (now unnamed) visit. Late/absent figures rest on default rules, not contractual shifts.
+
+## Forms, files and invitations (F1)
+
+- **Versions are immutable.** No function patches or deletes a `formVersions`
+  row. Responses store `formVersionId`; the kiosk and invite page must post the
+  currently served version or get CONFLICT. Consent answers must carry the exact
+  text of that version.
+- **Server-side validation** (`lib/validation/forms.ts`, re-run in Convex):
+  unknown keys, required, type, option membership, showIf (hidden answers are
+  dropped), size limits. Client checks are convenience only.
+- **Sensitive data.** ID scans, face photos and ID numbers are forced
+  `sensitive`. Queries never return sensitive values or file URLs. Reading
+  needs `forms:read_sensitive` (owner, admin; overridable per member) via
+  mutations that write an audit entry (`form_response.sensitive_read`,
+  `file.read`; ids and field names only, never values). Denied reads are not
+  logged. CSV export of sensitive columns needs the same permission and is off
+  by default.
+- **Files.** Private Convex storage; URLs only from audited, permission-checked
+  mutations. Upload URLs need a valid kiosk token or a live invitation token,
+  are rate limited (30 per 5 min per device; 10 per invitation), and
+  `registerUpload` enforces size and an allowed content type, deleting
+  violating bytes. A file can be attached once, only by the uploader (device or
+  invitation), only for a field of the matching kind. Every file has
+  `deleteAfter` (field `retentionDays`, default 90 days; unclaimed uploads 1 h);
+  `internal.files.purgeExpired` runs daily. Limits: content type is declared by
+  the uploader (not sniffed); never-registered uploads are not swept.
+- **ID scan** is read-and-discard by default; OCR output is only a suggestion
+  that the visitor must confirm. The OCR engine is a stub: when one is chosen,
+  review whether the image leaves the device.
+- **Face capture** is a plain photo, off per organization by default, requires
+  an earlier required consent field, and is hidden from kiosks immediately when
+  switched off. No face matching or recognition exists.
+- **Invitations.** Token = 256 random bits, only its SHA-256 stored; shown once.
+  Every failure (unknown, malformed, expired, cancelled, used, suspended org,
+  inactive site) returns the same `{status:"unavailable"}`. Single use. Global
+  public rate limit (120/min) protects the database; per-IP limits need the edge
+  (Vercel Firewall), a hardening (H1) item. The page sets `noindex` and
+  `no-referrer`. The raw link is passed to the notifications scheduler job once;
+  N1 redacts it after sending.
 
 ## Known gaps / backlog
 
