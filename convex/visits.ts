@@ -10,6 +10,7 @@ import { parseOrThrow } from "./lib/validate";
 import { requireGate, requireHost, upsertVisitor } from "./lib/visitors";
 
 const MAX_LIST = 300;
+const RECENT_MS = 4 * 60 * 60 * 1000;
 
 const vVisitorInput = v.object({
   name: v.string(),
@@ -92,19 +93,85 @@ export const listActive = orgQuery({
   },
 });
 
+/** Active (expected / on site) visits where the caller is the named host, within their site access. */
+export const myVisitors = orgQuery({
+  args: {},
+  handler: async (ctx) => {
+    ctx.require("visits:check_out_own");
+    const me = ctx.oc.user._id;
+    const sites = await ctx.db
+      .query("sites")
+      .withIndex("by_org", (q) => q.eq("organizationId", ctx.oc.org._id))
+      .take(200);
+    const rows: Doc<"visits">[] = [];
+    for (const site of sites.filter((s) => hasSiteAccess(ctx.oc.membership, s._id))) {
+      for (const status of ["expected", "on_site"] as const) {
+        const found = await ctx.db
+          .query("visits")
+          .withIndex("by_site_status", (q) => q.eq("siteId", site._id).eq("status", status))
+          .take(MAX_LIST);
+        rows.push(...found.filter((vis) => vis.hostUserId === me));
+      }
+    }
+    return await Promise.all(
+      rows.map(async (visit) => ({
+        ...visit,
+        visitorName: (await ctx.db.get(visit.visitorId))?.name ?? "Unknown",
+      })),
+    );
+  },
+});
+
+/** Visits checked out in the last few hours, so gate staff can see who was cleared and by whom. */
+export const recentCheckOuts = orgQuery({
+  args: { siteId: v.id("sites"), withinMs: v.optional(v.number()) },
+  handler: async (ctx, { siteId, withinMs }) => {
+    ctx.require("visits:read_site");
+    await requireSite(ctx, ctx.oc, siteId);
+    const cutoff = Date.now() - Math.min(withinMs ?? RECENT_MS, 24 * 60 * 60 * 1000);
+    const rows = await ctx.db
+      .query("visits")
+      .withIndex("by_site_status", (q) => q.eq("siteId", siteId).eq("status", "checked_out"))
+      .order("desc")
+      .take(100);
+    return await Promise.all(
+      rows
+        .filter((visit) => (visit.checkedOutAt ?? 0) >= cutoff)
+        .map(async (visit) => ({
+          ...visit,
+          visitorName: (await ctx.db.get(visit.visitorId))?.name ?? "Unknown",
+        })),
+    );
+  },
+});
+
+/**
+ * One visit with its event timeline. Site-wide readers see any visit at their
+ * sites; a host with `visits:check_out_own` sees only visits they host.
+ */
 export const get = orgQuery({
   args: { visitId: v.id("visits") },
   handler: async (ctx, { visitId }) => {
-    ctx.require("visits:read_site");
-    const visit = await ctx.db.get(visitId);
-    if (!visit || visit.organizationId !== ctx.oc.org._id || !hasSiteAccess(ctx.oc.membership, visit.siteId)) {
-      throw appError("NOT_FOUND");
-    }
-    const [visitor, events] = await Promise.all([
+    const visit = await loadVisit(ctx, visitId);
+    const isOwnHosted = visit.hostUserId === ctx.oc.user._id && ctx.oc.permissions.has("visits:check_out_own");
+    if (!ctx.oc.permissions.has("visits:read_site") && !isOwnHosted) throw appError("FORBIDDEN");
+    const [visitor, host, events] = await Promise.all([
       ctx.db.get(visit.visitorId),
-      ctx.db.query("visitEvents").withIndex("by_visit", (q) => q.eq("visitId", visitId)).take(50),
+      visit.hostUserId ? ctx.db.get(visit.hostUserId) : null,
+      ctx.db.query("visitEvents").withIndex("by_visit", (q) => q.eq("visitId", visitId)).take(100),
     ]);
-    return { ...visit, visitor, events };
+    const timeline = await Promise.all(
+      events.map(async (e) => {
+        const [actor, gate] = await Promise.all([ctx.db.get(e.actorUserId), e.gateId ? ctx.db.get(e.gateId) : null]);
+        return { ...e, actorName: actor?.name ?? actor?.email ?? "Unknown", gateName: gate?.name ?? null };
+      }),
+    );
+    return {
+      ...visit,
+      visitor,
+      hostName: host ? (host.name ?? host.email ?? null) : null,
+      events: timeline,
+    };
   },
 });
 
@@ -231,30 +298,69 @@ export const admit = orgMutation({
   },
 });
 
+/** Shared check-out transition: status, appointment completion, events, audit. */
+async function finishVisit(
+  ctx: OrgCtx & MutationCtx,
+  visit: Doc<"visits">,
+  method: "host" | "gate" | "reception",
+  gateId?: Id<"gates">,
+) {
+  const now = Date.now();
+  const me = ctx.oc.user._id;
+  await ctx.db.patch(visit._id, {
+    status: "checked_out",
+    checkedOutAt: now,
+    checkedOutGateId: gateId,
+    checkedOutMethod: method,
+    updatedAt: now,
+  });
+  if (visit.appointmentId) {
+    await ctx.db.patch(visit.appointmentId, { status: "completed", updatedAt: now });
+  }
+  // The host clearing the visitor is recorded as its own event, ahead of check-out.
+  if (method === "host") await addEvent(ctx, visit, "meeting_ended", me);
+  await addEvent(ctx, visit, "checked_out", me, gateId);
+  await writeAudit(ctx, {
+    organizationId: ctx.oc.org._id,
+    actorUserId: me,
+    action: method === "host" ? "visit.host_checked_out" : "visit.checked_out",
+    resourceType: "visit",
+    resourceId: visit._id,
+    metadata: { method },
+  });
+}
+
+/**
+ * Check a visitor out at a gate (guard) or from reception (no gate). Needs
+ * `visits:check_out`, or `visits:check_out_own` for visits the caller hosts.
+ */
 export const checkOut = orgMutation({
-  args: { visitId: v.id("visits"), gateId: v.id("gates") },
+  args: { visitId: v.id("visits"), gateId: v.optional(v.id("gates")) },
   handler: async (ctx, { visitId, gateId }) => {
-    ctx.require("visits:check_out");
     const visit = await loadVisit(ctx, visitId);
+    const isOwn = visit.hostUserId === ctx.oc.user._id;
+    const method = ctx.oc.permissions.has("visits:check_out")
+      ? gateId
+        ? "gate"
+        : "reception"
+      : ctx.oc.permissions.has("visits:check_out_own") && isOwn
+        ? "host"
+        : null;
+    if (!method) throw appError("FORBIDDEN");
     if (visit.status !== "on_site") throw appError("CONFLICT", "This visitor is not on site.");
-    await requireGate(ctx, ctx.oc, gateId, visit.siteId);
-    const now = Date.now();
-    await ctx.db.patch(visitId, {
-      status: "checked_out",
-      checkedOutAt: now,
-      checkedOutGateId: gateId,
-      updatedAt: now,
-    });
-    if (visit.appointmentId) {
-      await ctx.db.patch(visit.appointmentId, { status: "completed", updatedAt: now });
-    }
-    await addEvent(ctx, visit, "checked_out", ctx.oc.user._id, gateId);
-    await writeAudit(ctx, {
-      organizationId: ctx.oc.org._id,
-      actorUserId: ctx.oc.user._id,
-      action: "visit.checked_out",
-      resourceType: "visit",
-      resourceId: visitId,
-    });
+    if (gateId) await requireGate(ctx, ctx.oc, gateId, visit.siteId);
+    await finishVisit(ctx, visit, method, gateId);
+  },
+});
+
+/** A host ends the meeting and clears their own visitor to leave. */
+export const hostCheckOut = orgMutation({
+  args: { visitId: v.id("visits") },
+  handler: async (ctx, { visitId }) => {
+    ctx.require("visits:check_out_own");
+    const visit = await loadVisit(ctx, visitId);
+    if (visit.hostUserId !== ctx.oc.user._id) throw appError("FORBIDDEN");
+    if (visit.status !== "on_site") throw appError("CONFLICT", "This visitor is not on site.");
+    await finishVisit(ctx, visit, "host");
   },
 });

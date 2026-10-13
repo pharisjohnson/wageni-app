@@ -68,8 +68,22 @@ export const get = orgQuery({
   args: { appointmentId: v.id("appointments") },
   handler: async (ctx, { appointmentId }) => {
     const appt = await loadVisible(ctx, appointmentId);
-    const [visitor, host] = await Promise.all([ctx.db.get(appt.visitorId), ctx.db.get(appt.hostUserId)]);
-    return { ...appt, visitor, hostName: host?.name ?? host?.email ?? "Unknown" };
+    const [visitor, host, decider, creator, visit] = await Promise.all([
+      ctx.db.get(appt.visitorId),
+      ctx.db.get(appt.hostUserId),
+      appt.decidedBy ? ctx.db.get(appt.decidedBy) : null,
+      ctx.db.get(appt.createdBy),
+      ctx.db.query("visits").withIndex("by_appointment", (q) => q.eq("appointmentId", appointmentId)).first(),
+    ]);
+    const canSeeVisit = ctx.oc.permissions.has("visits:read_site") || visit?.hostUserId === ctx.oc.user._id;
+    return {
+      ...appt,
+      visitor,
+      hostName: host?.name ?? host?.email ?? "Unknown",
+      decidedByName: decider ? (decider.name ?? decider.email ?? "Unknown") : null,
+      createdByName: creator?.name ?? creator?.email ?? "Unknown",
+      visitId: visit && canSeeVisit ? visit._id : null,
+    };
   },
 });
 

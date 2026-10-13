@@ -58,5 +58,14 @@ export const vVisitStatus = v.union(
 export const vVisitEventType = v.union(
   v.literal("registered"),
   v.literal("checked_in"),
+  v.literal("meeting_ended"),
   v.literal("checked_out"),
+);
+
+/** Who ended the visit: the host, a gate guard, reception, or the kiosk. */
+export const vCheckOutMethod = v.union(
+  v.literal("host"),
+  v.literal("gate"),
+  v.literal("reception"),
+  v.literal("kiosk"),
 );
