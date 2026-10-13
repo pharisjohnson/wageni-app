@@ -19,6 +19,10 @@ export const PERMISSIONS = [
   "staff_attendance:read_own",
   "staff_attendance:read_site",
   "staff_attendance:correct",
+  // --- A1: staff attendance
+  "staff_attendance:record_on_behalf",
+  "staff_attendance:manage_pins",
+  // --- end A1
   "reports:read",
   "reports:export",
   "audit:read",

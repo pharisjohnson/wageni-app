@@ -146,8 +146,8 @@ export default function VisitsPage() {
             {can("visitors:register_walk_in") && siteId && !adding && (
               <Button onClick={() => setAdding(true)}>Register walk-in</Button>
             )}
-            {can("staff_attendance:create") && (
-              <Link href="/app/attendance" className={buttonVariants({ variant: "ghost" })}>
+            {can("staff_attendance:record_on_behalf") && (
+              <Link href="/app/staff" className={buttonVariants({ variant: "ghost" })}>
                 Check in staff on behalf
               </Link>
             )}

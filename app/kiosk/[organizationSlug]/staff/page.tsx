@@ -5,8 +5,8 @@ import { KioskTile } from "@/components/kiosk/kiosk-tile";
 import { useKioskOrg } from "@/components/kiosk/kiosk-frame";
 
 /**
- * Staff kiosk actions will require secure identification (Phase 3). Choosing
- * "Staff" on the welcome screen never grants staff functionality by itself.
+ * Choosing "Staff" on the welcome screen grants nothing by itself: the next
+ * screens ask for a staff number and PIN, which the server verifies on every action.
  */
 export default function KioskStaffPage() {
   const { slug } = useKioskOrg();
