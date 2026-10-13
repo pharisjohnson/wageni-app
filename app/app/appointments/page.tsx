@@ -9,7 +9,7 @@ import { Field } from "@/components/forms/field";
 import { PageHeader } from "@/components/layout/page-header";
 import { useSiteGates } from "@/components/visits/use-site-gates";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -184,7 +184,13 @@ export default function AppointmentsPage() {
         description="Upcoming and recent visitor appointments."
         actions={
           can("appointments:create") && siteId && !adding ? (
-            <Button onClick={() => setAdding(true)}>Book appointment</Button>
+            <>
+              <Button onClick={() => setAdding(true)}>Book appointment</Button>
+              {/* F1: invitation links */}
+              <Link href="/app/appointments/invite" className={buttonVariants({ variant: "outline" })}>
+                Invite a visitor
+              </Link>
+            </>
           ) : null
         }
       />

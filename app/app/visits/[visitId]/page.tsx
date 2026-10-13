@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
+import { VisitResponses } from "@/components/forms-builder/visit-responses";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -180,6 +181,8 @@ export default function VisitDetailPage() {
           </CardContent>
         </Card>
       </div>
+      {/* F1: form answers (sensitive values need forms:read_sensitive and are audited) */}
+      <VisitResponses visitId={visit._id} />
     </>
   );
 }

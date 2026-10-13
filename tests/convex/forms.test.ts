@@ -331,7 +331,7 @@ describe("sensitive answers", () => {
   });
 
   test("another organization cannot read the response", async () => {
-    const { t, s, visitId, responseId } = await withSensitiveVisit();
+    const { t, visitId, responseId } = await withSensitiveVisit();
     const other = await createOrgWithOwner(t, "Other", "other");
     const arg = { organizationId: other.organizationId };
     await expectCode(other.owner.as.mutation(api.forms.revealSensitive, { ...arg, responseId }), "NOT_FOUND");

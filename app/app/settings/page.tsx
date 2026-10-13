@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import type { z } from "zod";
 import { Field } from "@/components/forms/field";
+import { PolicySettingsCard } from "@/components/forms-builder/policy-settings-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,6 +87,9 @@ export default function SettingsPage() {
           </form>
         </CardContent>
       </Card>
+      {/* --- F1: approval and face-capture policy --- */}
+      <PolicySettingsCard />
+      {/* --- end F1 --- */}
     </>
   );
 }
