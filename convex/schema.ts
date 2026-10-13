@@ -155,4 +155,25 @@ export default defineSchema({
     metadata: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null()))),
     at: v.number(),
   }).index("by_org_at", ["organizationId", "at"]),
+
+  // --- K1: kiosk device pairing. Only a SHA-256 hash of the token is stored.
+  kioskDevices: defineTable({
+    organizationId: v.id("organizations"),
+    siteId: v.id("sites"),
+    gateId: v.id("gates"),
+    name: v.string(),
+    tokenHash: v.string(),
+    status: v.union(v.literal("active"), v.literal("revoked")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    lastSeenAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    // Fixed-window rate limit counters (see convex/lib/kiosk.ts).
+    rateWindowStart: v.optional(v.number()),
+    rateCount: v.optional(v.number()),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_gate", ["gateId"])
+    .index("by_token_hash", ["tokenHash"]),
+  // --- end K1
 });

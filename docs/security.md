@@ -28,6 +28,28 @@ Act 2019 (or any other regime) until one has been done.
   pagination.
 - **Abuse limit.** Each account may own at most 5 organizations.
 
+## Kiosk trust (K1)
+
+`/kiosk/<slug>` is a public URL, so the URL alone never authorises reads or
+writes of tenant data. Each kiosk is paired with a per-gate **device token**:
+
+- An admin (`sites:manage`) issues a token under Sites & gates > Kiosk devices.
+  It is shown once; only its SHA-256 hash is stored (`kioskDevices.tokenHash`).
+  Tokens are 256-bit random values. Issue and revoke are audit-logged.
+- Kiosk-facing Convex functions must use `kioskQuery` / `kioskMutation`
+  (`convex/lib/kiosk.ts`). They resolve the device from `{ slug, token }` and
+  reject revoked devices, tokens for another organization, suspended
+  organizations and inactive sites/gates, always with the same generic
+  `NOT_FOUND`.
+- `kioskMutation` applies a per-device fixed-window rate limit (60/minute) and
+  touches `lastSeenAt` at most every 5 minutes. Queries are read-only so they
+  are not rate limited; token entropy makes guessing infeasible.
+- The browser stores the token in localStorage (device identity, no personal
+  data). Revoking a device takes effect on its next call. The setup link puts
+  the token in the URL fragment so it is not sent to servers or logged.
+- Known gap: a revoked kiosk's queries error rather than showing a friendly
+  screen; wave 2 should treat `NOT_FOUND` from kiosk calls as "call `unpair()`".
+
 ## Known gaps / backlog
 
 - Rate limiting for public endpoints (kiosk registration arrives in Phase 2,

@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Field } from "@/components/forms/field";
 import { PageHeader } from "@/components/layout/page-header";
+import { KioskDevices } from "@/components/sites/kiosk-devices";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -141,12 +142,15 @@ function SiteCard({ site }: { site: Doc<"sites"> }) {
         ) : (
           <ul className="divide-y rounded-lg border">
             {gates.map((g) => (
-              <li key={g._id} className="flex items-center justify-between px-3 py-2 text-sm">
-                <span>{g.name}</span>
-                <span className="flex items-center gap-2 text-muted-foreground">
-                  {GATE_TYPE_LABELS[g.type]}
-                  {g.status === "inactive" && <Badge variant="outline">Inactive</Badge>}
-                </span>
+              <li key={g._id}>
+                <div className="flex items-center justify-between px-3 py-2 text-sm">
+                  <span>{g.name}</span>
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    {GATE_TYPE_LABELS[g.type]}
+                    {g.status === "inactive" && <Badge variant="outline">Inactive</Badge>}
+                  </span>
+                </div>
+                {can("sites:manage") && <KioskDevices gateId={g._id} />}
               </li>
             ))}
           </ul>
