@@ -14,6 +14,7 @@ import {
   type EventRow,
 } from "@/components/attendance/history";
 import { PinCard } from "@/components/attendance/pin-card";
+import { NotificationPreferencesCard } from "@/components/messages/preferences-card"; // N1
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -188,6 +189,7 @@ export default function AttendancePage() {
       </section>
 
       <PinCard />
+      <NotificationPreferencesCard /> {/* N1 */}
     </>
   );
 }

@@ -339,13 +339,16 @@ describe("invitations with a published form", () => {
   });
 });
 
-describe("hook point", () => {
-  test("creating an invitation calls the no-op hook without side effects", async () => {
+describe("notification hook", () => {
+  test("creating an invitation schedules one notification job with the link, never storing the token", async () => {
     const t = newTest();
     const s = await formsSetup(t);
-    await invite(s);
-    // Nothing is delivered from this module: no scheduled functions exist.
+    const { token } = await invite(s, "reception", { visitorEmail: "ivy@example.com" });
     const scheduled = await t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
-    expect(scheduled).toHaveLength(0);
+    expect(scheduled).toHaveLength(1);
+    expect(JSON.stringify(scheduled[0]!.args)).toContain(token);
+    expect(JSON.stringify(scheduled[0]!.args)).toContain("invite:");
+    const rows = await t.run(async (ctx) => ctx.db.query("invitations").collect());
+    expect(JSON.stringify(rows)).not.toContain(token);
   });
 });

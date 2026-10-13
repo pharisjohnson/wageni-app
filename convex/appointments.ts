@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { appointmentSchema } from "../lib/validation/visits";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { hasSiteAccess, requireSite } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
@@ -139,6 +140,7 @@ export const create = orgMutation({
       resourceType: "appointment",
       resourceId: id,
     });
+    await ctx.scheduler.runAfter(0, internal.notifications.onAppointmentEvent, { appointmentId: id, event: "requested", actorUserId: me }); // N1
     return id;
   },
 });
@@ -172,6 +174,7 @@ export const decide = orgMutation({
       resourceType: "appointment",
       resourceId: appointmentId,
     });
+    await ctx.scheduler.runAfter(0, internal.notifications.onAppointmentEvent, { appointmentId, event: decision, actorUserId: me }); // N1
   },
 });
 
@@ -191,6 +194,7 @@ export const cancel = orgMutation({
       resourceType: "appointment",
       resourceId: appointmentId,
     });
+    await ctx.scheduler.runAfter(0, internal.notifications.onAppointmentEvent, { appointmentId, event: "cancelled", actorUserId: ctx.oc.user._id }); // N1
   },
 });
 
@@ -215,6 +219,7 @@ export const reschedule = orgMutation({
       resourceType: "appointment",
       resourceId: appointmentId,
     });
+    await ctx.scheduler.runAfter(0, internal.notifications.onAppointmentEvent, { appointmentId, event: "rescheduled", actorUserId: ctx.oc.user._id }); // N1
   },
 });
 

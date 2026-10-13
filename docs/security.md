@@ -120,6 +120,20 @@ so the device token fixes org, site and gate; the visitor never supplies them.
   Staff numbers are not secret (printed on badges is fine). Correction times are
   entered in the device's time zone, not the site's.
 
+## Notifications and webhooks (N1)
+
+- **Secrets** come only from Convex environment variables (`.env.example`, N1 block). They are read inside the delivery action, never written to tables, logs, errors or query results. Provider error handling keeps the HTTP status only, since response bodies can echo recipients or keys. `notifications.channelConfig` returns modes and the names of missing variables, never values.
+- **Dry-run by default.** Without full provider config a channel records the message and sends nothing; the UI says "Test mode".
+- **Tenant isolation.** Every outbox, preferences and settings read goes through `orgQuery`/`orgMutation`. Staff recipients must hold an active membership in the same organization at enqueue time; visitor contacts are copied from that organization's own records. Tests cover cross-org list, stats, retry and settings.
+- **Minimal data.** Payloads hold template placeholders only. Visitor-facing messages contain first name, organization, time and host name; never purpose, company, phone, email or badge code. Host messages carry the visitor's name and site. History responses mask addresses (`j***@x.com`) and omit bodies and provider ids.
+- **Links are secrets.** `invitation_created` payloads hold the invite link only until the message settles (sent or failed), then it is replaced with `[redacted]`.
+- **Retention.** Outbox rows (with the recipient address) are deleted after 90 days by `notificationsCron.purgeOld`. Skipped rows store no address.
+- **Abuse limits.** 300 messages per organization per hour (excess is recorded as `skipped: rate_limited`), 5 test sends per hour, addresses must be a single plain email or an E.164 phone (no header injection), placeholder values lose control characters and are length-capped, template overrides may only use each event's own placeholders and no HTML.
+- **Idempotency.** Each trigger passes a stable key, and `(organization, key, channel, recipient)` is checked before insert, so repeats (retries, double clicks, overlapping crons) enqueue once. Delivery is at-least-once: a crash after a provider accepted a message but before the outcome was saved can send it twice. A 2 minute claim lock limits concurrent sends of the same row.
+- **Triggers cannot break business actions.** Hooks are scheduled (`ctx.scheduler.runAfter(0, internal.notifications.onX)`), so an error in notification code never rolls back a check-in or booking.
+- **Webhook** `POST /webhooks/notifications`: HMAC-SHA256 over `timestamp.body` with `NOTIFY_WEBHOOK_SECRET`, constant-time compare, 5 minute replay window (older or future timestamps rejected), 4 KB body cap, one generic 401/400 body for every failure, `200 {"ok":true}` whether or not the id matched (no probing), 404 when no secret is configured. Receipts only move forward (sent, delivered, read), so a replay inside the window is harmless; `failed` is ignored after delivered.
+- **Residual risks.** The shared-secret scheme needs a relay for providers that sign differently. Quiet hours drop (not defer) messages, so a host may miss an arrival alert at night by choice. A staff member can enter any phone number as their own, which the org rate limit bounds. Provider message ids are assumed unique across tenants; an ambiguous match is ignored.
+
 ## Known gaps / backlog
 
 - Rate limiting for public endpoints (kiosk registration arrives in Phase 2,
@@ -128,7 +142,7 @@ so the device token fixes org, site and gate; the visitor never supplies them.
   data layer.
 - Content Security Policy and security headers in `next.config.ts`.
 - Retention policies and data-subject request tooling (Phase 5).
-- Signed outbound webhooks with SSRF protection (Phase 6).
+- Signed outbound webhooks with SSRF protection (inbound delivery receipts are done, see Notifications).
 - Monitoring and alerting (Sentry or equivalent) (Phase 8).
 - Backup/restore procedure for Convex (export and import) still needs to be documented and rehearsed.
 - The operator console uses a browser prompt to collect a suspension reason;

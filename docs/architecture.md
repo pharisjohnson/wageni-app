@@ -103,6 +103,13 @@ sign-in/up pages, `components/layout/auth-gate.tsx` and `user-menu.tsx`.
 Convex functions only use the generic `ctx.auth.getUserIdentity()`, so switching
 providers doesn't touch backend authorization.
 
+## Notifications and scheduled jobs (N1)
+
+- **Flow.** A business action schedules `internal.notifications.onX` (never inline, so it cannot fail the action). The hook calls `enqueueNotification` (`convex/lib/notify.ts`), which checks organization channels, member preferences and quiet hours, applies the hourly limit and idempotency, and inserts one `notificationOutbox` row per channel. `notificationsDelivery.deliver` (an action) claims the row, renders the template, calls the adapter from `lib/notifications/channels.ts` and records the outcome; failures retry with backoff via the scheduler. Templates live in `lib/notifications/templates.ts` (English first, `sw` slot ready).
+- **Hook points.** `convex/lib/visits.ts` (`admitAppointment`, `registerVisit`), `convex/visits.ts` (`admit`), `convex/appointments.ts` (create, decide, cancel, reschedule). Invitations: F1 calls `internal.notifications.onInvitationCreated`.
+- **Crons** (`convex/crons.ts`): reminders, staff scan, outbox retry, outbox purge. Retention and file cleanup wiring: when P1's `retention.purgeExpired` and F1's `files.purgeExpired` are merged, uncomment the two marked lines at the bottom of `convex/crons.ts` (a cron naming a missing function fails typecheck and deploy). Retention windows should then replace the fixed 90 days in `notificationsCron.purgeOld`.
+- **HTTP** (`convex/http.ts`): `POST /webhooks/notifications` for signed delivery receipts.
+
 ## Deployment models
 
 - **Shared cloud (current):** Vercel (Next.js) + Convex Cloud. Tenants are

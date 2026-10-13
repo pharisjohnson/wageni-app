@@ -488,8 +488,8 @@ describe("files", () => {
     // reception + host read the signature; the owner read the scan (denied reads are not logged).
     expect(reads.map((r) => r.resourceId).sort()).toEqual([sigId, sigId, scanId].sort());
     // Nothing public exposes file URLs: the visit query returns ids only.
-    const [{ items }] = await s.reception.as.query(api.forms.visitResponses, { ...s.orgArg, visitId: (await onlyVisit(t))[0]!._id });
-    expect(JSON.stringify(items)).not.toContain("http");
+    const resp = await s.reception.as.query(api.forms.visitResponses, { ...s.orgArg, visitId: (await onlyVisit(t))[0]!._id });
+    expect(JSON.stringify(resp)).not.toContain("http");
     // Another tenant cannot open it.
     const other = await createOrgWithOwner(t, "Other", "other");
     await expectCode(other.owner.as.mutation(api.forms.openFile, { organizationId: other.organizationId, fileId: sigId }), "NOT_FOUND");
@@ -500,7 +500,7 @@ describe("files", () => {
     // Scan is past its date; the signature is not.
     await t.run(async (ctx) => ctx.db.patch(scanId, { deleteAfter: Date.now() - 1000 }));
     const scanStorage = (await t.run(async (ctx) => ctx.db.get(scanId)))!.storageId!;
-    const deleted = await t.mutation(internal.files.deleteExpired, {});
+    const deleted = await t.mutation(internal.files.purgeExpired, {});
     expect(deleted).toBe(1);
     const [sig, scan] = await t.run(async (ctx) => [await ctx.db.get(sigId), await ctx.db.get(scanId)]);
     expect(sig!.status).toBe("attached");
@@ -517,7 +517,7 @@ describe("files", () => {
     expect(visitId).toBeDefined();
     expect(await auditActions(t)).toContain("file.deleted_retention");
     // Running again is a no-op.
-    expect(await t.mutation(internal.files.deleteExpired, {})).toBe(0);
+    expect(await t.mutation(internal.files.purgeExpired, {})).toBe(0);
   });
 
   test("retention: unclaimed uploads expire after an hour", async () => {
@@ -525,11 +525,11 @@ describe("files", () => {
     const s = await formsSetup(t);
     const up = await s.upload("signature", "image/png");
     if (up.res.status !== "ok") throw new Error("upload failed");
-    expect(await t.mutation(internal.files.deleteExpired, {})).toBe(0);
+    expect(await t.mutation(internal.files.purgeExpired, {})).toBe(0);
     const row = await t.run(async (ctx) => ctx.db.get(up.res.status === "ok" ? up.res.fileId : ("" as Id<"files">)));
     expect(row!.deleteAfter - Date.now()).toBeLessThanOrEqual(60 * 60 * 1000);
     await t.run(async (ctx) => ctx.db.patch(row!._id, { deleteAfter: Date.now() - 1 }));
-    expect(await t.mutation(internal.files.deleteExpired, {})).toBe(1);
+    expect(await t.mutation(internal.files.purgeExpired, {})).toBe(1);
     expect(await t.run(async (ctx) => ctx.storage.getUrl(up.storageId))).toBeNull();
   });
 });

@@ -23,6 +23,9 @@ import {
   vFormStatus,
   vInvitationStatus,
   vOrgPolicies,
+
+  vChannel,
+  vNotificationStatus,
 } from "./validators";
 
 /**
@@ -133,7 +136,9 @@ export default defineSchema({
   })
     .index("by_org_start", ["organizationId", "scheduledStart"])
     .index("by_site_start", ["siteId", "scheduledStart"])
-    .index("by_host_start", ["hostUserId", "scheduledStart"]),
+    .index("by_host_start", ["hostUserId", "scheduledStart"])
+    // N1: reminder scan across organizations
+    .index("by_status_start", ["status", "scheduledStart"]),
 
   visits: defineTable({
     organizationId: v.id("organizations"),
@@ -368,4 +373,70 @@ export default defineSchema({
     count: v.number(),
   }).index("by_key", ["key"]),
   // --- end F1
+
+  // --- N1: notifications
+  // One row per message per channel. `payload` holds placeholder values only
+  // (no more personal data than the template needs); sensitive ones (links)
+  // are redacted once the message is settled. `to` is the resolved address and
+  // is purged with the row by the retention cron.
+  notificationOutbox: defineTable({
+    organizationId: v.id("organizations"),
+    siteId: v.optional(v.id("sites")),
+    channel: vChannel,
+    eventType: v.string(),
+    templateKey: v.string(),
+    recipientKind: v.union(v.literal("user"), v.literal("visitor")),
+    recipientUserId: v.optional(v.id("users")),
+    to: v.optional(v.string()),
+    payload: v.record(v.string(), v.string()),
+    status: vNotificationStatus,
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
+    providerMessageId: v.optional(v.string()),
+    mode: v.optional(v.union(v.literal("dry_run"), v.literal("live"))),
+    // Receipt reported by the provider webhook.
+    deliveryStatus: v.optional(v.union(v.literal("delivered"), v.literal("read"), v.literal("failed"))),
+    idempotencyKey: v.string(),
+    nextAttemptAt: v.optional(v.number()),
+    claimedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+  })
+    .index("by_org_created", ["organizationId", "createdAt"])
+    .index("by_org_status_created", ["organizationId", "status", "createdAt"])
+    .index("by_org_idem", ["organizationId", "idempotencyKey"])
+    .index("by_status_created", ["status", "createdAt"])
+    .index("by_provider_message", ["providerMessageId"]),
+
+  // Per member: which events reach them on which channel, an optional phone
+  // for SMS/WhatsApp, and quiet hours (minutes after midnight, organization time zone).
+  notificationPreferences: defineTable({
+    organizationId: v.id("organizations"),
+    userId: v.id("users"),
+    phone: v.optional(v.string()),
+    events: v.record(
+      v.string(),
+      v.object({ email: v.optional(v.boolean()), sms: v.optional(v.boolean()), whatsapp: v.optional(v.boolean()) }),
+    ),
+    quietStartMin: v.optional(v.number()),
+    quietEndMin: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_org_user", ["organizationId", "userId"]),
+
+  notificationSettings: defineTable({
+    organizationId: v.id("organizations"),
+    enabledChannels: v.array(vChannel),
+    senderName: v.optional(v.string()),
+    templateOverrides: v.record(v.string(), v.object({ subject: v.optional(v.string()), body: v.optional(v.string()) })),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]),
+
+  // Fixed one-hour window per organization (rate limit for outgoing messages).
+  notificationUsage: defineTable({
+    organizationId: v.id("organizations"),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("by_org", ["organizationId"]),
+  // --- end N1
 });

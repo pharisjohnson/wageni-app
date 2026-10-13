@@ -103,7 +103,7 @@ export function FieldEditor({
   const sourceValues =
     source?.type === "yes_no" ? ["yes", "no"] : source && CHOICE_TYPES.includes(source.type) ? (source.options ?? []) : null;
   const isFile = ["signature", "file_upload", "photo", "id_scan", "face_photo"].includes(v.type);
-  const check = "size-4 accent-[var(--color-primary,theme(colors.teal.700))]";
+  const check = "size-4 accent-primary";
 
   return (
     <div className="grid gap-4 sm:grid-cols-2" aria-label={`Settings for ${field.label}`}>
