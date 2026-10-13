@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -221,7 +222,10 @@ export default function AppointmentsPage() {
             <li key={a._id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
               <div className="space-y-0.5">
                 <p className="font-medium">
-                  {a.visitorName} <Badge variant="secondary">{STATUS_LABELS[a.status]}</Badge>
+                  <Link href={`/app/appointments/${a._id}`} className="hover:underline">
+                    {a.visitorName}
+                  </Link>{" "}
+                  <Badge variant="secondary">{STATUS_LABELS[a.status]}</Badge>
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {new Date(a.scheduledStart).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}

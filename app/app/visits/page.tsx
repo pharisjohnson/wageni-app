@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -8,7 +9,7 @@ import { Field } from "@/components/forms/field";
 import { PageHeader } from "@/components/layout/page-header";
 import { useSiteGates } from "@/components/visits/use-site-gates";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -105,7 +106,8 @@ function WalkInForm({
 export default function VisitsPage() {
   const { organizationId, can } = useActiveOrg();
   const { sites, siteId, setSiteId, gates } = useSiteGates();
-  const [gateChoice, setGateChoice] = useState<Id<"gates"> | null>(null);
+  // "" means no gate (reception check-out).
+  const [gateChoice, setGateChoice] = useState<Id<"gates"> | "" | null>(null);
   const [adding, setAdding] = useState(false);
   const canRead = can("visits:read_site");
   const visits = useQuery(
@@ -114,9 +116,16 @@ export default function VisitsPage() {
   );
   const admit = useMutation(api.visits.admit);
   const checkOut = useMutation(api.visits.checkOut);
-  const gateId = gateChoice ?? gates?.[0]?._id;
+  const gateId = gateChoice === "" ? undefined : (gateChoice ?? gates?.[0]?._id);
   const canCheckIn = can("visits:check_in");
   const canCheckOut = can("visits:check_out");
+  const canHostCheckOut = can("visits:check_out_own");
+  const myVisitors = useQuery(api.visits.myVisitors, canHostCheckOut ? { organizationId } : "skip");
+  const hostCheckOut = useMutation(api.visits.hostCheckOut);
+  const cleared = useQuery(
+    api.visits.recentCheckOuts,
+    canRead && siteId ? { organizationId, siteId } : "skip",
+  );
 
   async function act(fn: () => Promise<unknown>, done: string) {
     try {
@@ -133,9 +142,16 @@ export default function VisitsPage() {
         title="Visits"
         description="Visitors on site and those waiting to be admitted."
         actions={
-          can("visitors:register_walk_in") && siteId && !adding ? (
-            <Button onClick={() => setAdding(true)}>Register walk-in</Button>
-          ) : null
+          <>
+            {can("visitors:register_walk_in") && siteId && !adding && (
+              <Button onClick={() => setAdding(true)}>Register walk-in</Button>
+            )}
+            {can("staff_attendance:create") && (
+              <Link href="/app/attendance" className={buttonVariants({ variant: "ghost" })}>
+                Check in staff on behalf
+              </Link>
+            )}
+          </>
         }
       />
 
@@ -159,8 +175,9 @@ export default function VisitsPage() {
             aria-label="Gate"
             className="w-48"
             value={gateId ?? ""}
-            onChange={(e) => setGateChoice(e.target.value as Id<"gates">)}
+            onChange={(e) => setGateChoice(e.target.value as Id<"gates"> | "")}
           >
+            {canCheckOut && <option value="">No gate (reception)</option>}
             {gates.map((g) => (
               <option key={g._id} value={g._id}>
                 {g.name}
@@ -169,6 +186,43 @@ export default function VisitsPage() {
           </NativeSelect>
         )}
       </div>
+
+      {canHostCheckOut && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">My visitors</h2>
+          {myVisitors === undefined ? (
+            <Skeleton className="h-16 w-full" />
+          ) : myVisitors.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No visitors waiting for you right now.</p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
+              {myVisitors.map((visit) => (
+                <li key={visit._id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <div className="space-y-0.5">
+                    <Link href={`/app/visits/${visit._id}`} className="font-medium hover:underline">
+                      {visit.visitorName}
+                    </Link>{" "}
+                    <Badge variant={visit.status === "on_site" ? "default" : "secondary"}>
+                      {visit.status === "on_site" ? "On site" : "Expected"}
+                    </Badge>
+                    <p className="text-sm text-muted-foreground">{visit.purpose}</p>
+                  </div>
+                  {visit.status === "on_site" && (
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        act(() => hostCheckOut({ organizationId, visitId: visit._id }), "Meeting ended")
+                      }
+                    >
+                      Meeting done / check out
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {adding && siteId && (
         <Card>
@@ -193,7 +247,9 @@ export default function VisitsPage() {
             <li key={visit._id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
               <div className="space-y-0.5">
                 <p className="font-medium">
-                  {visit.visitorName}{" "}
+                  <Link href={`/app/visits/${visit._id}`} className="hover:underline">
+                    {visit.visitorName}
+                  </Link>{" "}
                   <Badge variant={visit.status === "on_site" ? "default" : "secondary"}>
                     {visit.status === "on_site" ? "On site" : "Awaiting admission"}
                   </Badge>
@@ -217,7 +273,7 @@ export default function VisitsPage() {
                   Admit
                 </Button>
               )}
-              {gateId && visit.status === "on_site" && canCheckOut && (
+              {visit.status === "on_site" && canCheckOut && (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -231,6 +287,30 @@ export default function VisitsPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {cleared && cleared.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Recently checked out</h2>
+          <ul className="divide-y rounded-lg border">
+            {cleared.map((visit) => (
+              <li key={visit._id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div className="space-y-0.5">
+                  <Link href={`/app/visits/${visit._id}`} className="font-medium hover:underline">
+                    {visit.visitorName}
+                  </Link>{" "}
+                  {visit.checkedOutMethod === "host" && <Badge>Cleared by host</Badge>}
+                  <p className="text-sm text-muted-foreground">
+                    {visit.purpose}
+                    {visit.checkedOutAt
+                      ? ` · Out ${new Date(visit.checkedOutAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                      : ""}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </>
   );

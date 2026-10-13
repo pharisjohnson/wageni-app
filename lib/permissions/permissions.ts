@@ -14,6 +14,7 @@ export const PERMISSIONS = [
   "visits:read_site",
   "visits:check_in",
   "visits:check_out",
+  "visits:check_out_own",
   "staff_attendance:create",
   "staff_attendance:read_own",
   "staff_attendance:read_site",

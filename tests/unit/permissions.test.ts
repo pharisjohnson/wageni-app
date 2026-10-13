@@ -45,6 +45,16 @@ describe("role defaults", () => {
     expect(g.has("visits:check_out")).toBe(true);
   });
 
+  test("check-out scopes: hosts only their own, reception any, staff none", () => {
+    const host = effectivePermissions("host");
+    expect(host.has("visits:check_out_own")).toBe(true);
+    expect(host.has("visits:check_out")).toBe(false);
+    expect(effectivePermissions("receptionist").has("visits:check_out")).toBe(true);
+    expect(effectivePermissions("receptionist").has("visits:check_out_own")).toBe(false);
+    expect(effectivePermissions("staff").has("visits:check_out_own")).toBe(false);
+    expect(effectivePermissions("admin").has("visits:check_out_own")).toBe(true);
+  });
+
   test("staff cannot correct attendance", () => {
     const s = effectivePermissions("staff");
     expect(s.has("staff_attendance:correct")).toBe(false);

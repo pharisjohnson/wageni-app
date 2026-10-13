@@ -10,6 +10,7 @@ import {
   vAppointmentStatus,
   vRecordStatus,
   vSiteAccess,
+  vCheckOutMethod,
   vVisitEventType,
   vVisitStatus,
 } from "./validators";
@@ -128,6 +129,7 @@ export default defineSchema({
     checkedInGateId: v.optional(v.id("gates")),
     checkedOutAt: v.optional(v.number()),
     checkedOutGateId: v.optional(v.id("gates")),
+    checkedOutMethod: v.optional(vCheckOutMethod),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
