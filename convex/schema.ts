@@ -143,14 +143,19 @@ export default defineSchema({
     siteId: v.id("sites"),
     visitId: v.id("visits"),
     type: vVisitEventType,
-    actorUserId: v.id("users"),
+    // K2: exactly one of these is set. A signed-in user, or (self-service
+    // kiosk) the paired device, which is the event's origin.
+    actorUserId: v.optional(v.id("users")),
+    kioskDeviceId: v.optional(v.id("kioskDevices")),
     gateId: v.optional(v.id("gates")),
     at: v.number(),
   }).index("by_visit", ["visitId", "at"]),
 
   auditLogs: defineTable({
     organizationId: v.id("organizations"),
-    actorUserId: v.id("users"),
+    // K2: exactly one of actorUserId / kioskDeviceId is set.
+    actorUserId: v.optional(v.id("users")),
+    kioskDeviceId: v.optional(v.id("kioskDevices")),
     action: v.string(),
     resourceType: v.string(),
     resourceId: v.string(),
@@ -173,6 +178,10 @@ export default defineSchema({
     // Fixed-window rate limit counters (see convex/lib/kiosk.ts).
     rateWindowStart: v.optional(v.number()),
     rateCount: v.optional(v.number()),
+    // --- K2: failed-lookup throttle (appointment lookup, badge check-out).
+    lookupWindowStart: v.optional(v.number()),
+    lookupFailures: v.optional(v.number()),
+    // --- end K2
   })
     .index("by_org", ["organizationId"])
     .index("by_gate", ["gateId"])
