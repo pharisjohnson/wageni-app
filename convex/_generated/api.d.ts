@@ -30,6 +30,9 @@ import type * as lib_kiosk from "../lib/kiosk.js";
 import type * as lib_kioskLookup from "../lib/kioskLookup.js";
 import type * as lib_notify from "../lib/notify.js";
 import type * as lib_pin from "../lib/pin.js";
+import type * as lib_reportExport from "../lib/reportExport.js";
+import type * as lib_reports from "../lib/reports.js";
+import type * as lib_retentionCron from "../lib/retentionCron.js";
 import type * as lib_time from "../lib/time.js";
 import type * as lib_validate from "../lib/validate.js";
 import type * as lib_visitors from "../lib/visitors.js";
@@ -40,6 +43,9 @@ import type * as notificationsCron from "../notificationsCron.js";
 import type * as notificationsDelivery from "../notificationsDelivery.js";
 import type * as organizations from "../organizations.js";
 import type * as platform from "../platform.js";
+import type * as reports from "../reports.js";
+import type * as reportsExport from "../reportsExport.js";
+import type * as retention from "../retention.js";
 import type * as seed from "../seed.js";
 import type * as sites from "../sites.js";
 import type * as users from "../users.js";
@@ -76,6 +82,9 @@ import type * as visits from "../visits.js";
 "lib/kioskLookup": typeof lib_kioskLookup,
 "lib/notify": typeof lib_notify,
 "lib/pin": typeof lib_pin,
+"lib/reportExport": typeof lib_reportExport,
+"lib/reports": typeof lib_reports,
+"lib/retentionCron": typeof lib_retentionCron,
 "lib/time": typeof lib_time,
 "lib/validate": typeof lib_validate,
 "lib/visitors": typeof lib_visitors,
@@ -86,6 +95,9 @@ import type * as visits from "../visits.js";
 "notificationsDelivery": typeof notificationsDelivery,
 "organizations": typeof organizations,
 "platform": typeof platform,
+"reports": typeof reports,
+"reportsExport": typeof reportsExport,
+"retention": typeof retention,
 "seed": typeof seed,
 "sites": typeof sites,
 "users": typeof users,
