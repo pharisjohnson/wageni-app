@@ -26,7 +26,7 @@
 | Tests: 9 Convex tests (flow, permissions, tenant and site isolation) | Passing |
 | Host check-out: `visits:check_out_own`, `hostCheckOut`, `meeting_ended` event, `checkedOutMethod`, optional gate on `checkOut`, `myVisitors`, `recentCheckOuts` | Done (R1) |
 | Visit and appointment detail pages (timeline, approval history, reschedule), "My visitors" and "Cleared by host" on visits page | Done (R1); staff-on-behalf is a link placeholder |
-| Kiosk visitor/staff flows | Not started |
+| Kiosk visitor flows | Done (K2); staff flows with A1 |
 
 ## Kiosk trust (K1)
 
@@ -38,6 +38,34 @@
 | Convex tests (`tests/convex/kiosk.test.ts`) | Passing |
 | Kiosk visitor/staff flows using the builders | Wave 2 |
 
+## Visitor kiosk (K2)
+
+| Area | Status |
+| --- | --- |
+| Appointment check-in by phone (`kioskVisitor.findAppointments` / `checkInAppointment`), badge confirmation, 20s return home | Done |
+| Walk-in self-registration (`kioskVisitor.registerWalkIn`, `hosts`): creates an `expected` visit awaiting admit by guard/reception, privacy notice shown | Done |
+| Self check-out by badge code + last 4 phone digits (`kioskVisitor.checkOut`, method `kiosk`) | Done |
+| Failed-lookup throttle per device, generic responses, audit on lockout | Done |
+| `visitEvents`/`auditLogs` accept a kiosk device as actor (`kioskDeviceId`); shared lifecycle logic in `convex/lib/visits.ts` | Done |
+| `useKioskApi` (NOT_FOUND unpairs the device) + gate verifies token on mount | Done |
+| Convex tests (`tests/convex/kioskVisitor.test.ts`), unit tests (`tests/unit/time.test.ts`) | Passing |
+| Booking codes, host notification on arrival (N1), forms (F1) | Not started |
+| Browser verification of kiosk screens (needs Convex + Clerk + a paired device) | Not done |
+
+## Staff attendance, Phase 3 (A1)
+
+| Area | Status |
+| --- | --- |
+| Append-only `attendanceEvents`; clock in/out (CONFLICT on double clock-in), record on behalf (audited) | Done |
+| `attendanceCorrections`: request (staff or manager), approve/reject; approving adds a NEW event referencing the original | Done |
+| Queries: my status/history, site roster (who is in, daily hours in the site's time zone), person history, pending corrections | Done |
+| Kiosk: staff number + PIN (`staffPins`, PBKDF2, 5 failures = 15 min lock), `/kiosk/<slug>/staff/check-in` and `check-out` | Done |
+| `/app/attendance` (clock, history, corrections, own PIN) and `/app/staff` (roster, corrections queue, person page with staff number and PIN reset) | Done; not exercised in a browser |
+| New permissions `staff_attendance:record_on_behalf`, `staff_attendance:manage_pins`; receptionist gains `read_site` | Done |
+| Tests: `tests/convex/attendance.test.ts`, `tests/unit/attendance.test.ts` | Passing |
+
+Not done: voiding an entry without a replacement, exports and reports of hours (Phase 5), manager notifications.
+
 ## Needs your credentials
 
 - **Convex**: run `pnpm convex:dev` (creates the deployment and real codegen).
@@ -47,7 +75,6 @@
 
 ## Not started (by phase)
 
-3. Staff attendance (append-only + corrections)
 4. Invitations, form builder (versioned), approval/notification policies
 5. Reports, CSV exports, audit UI, retention
 6. Email/SMS/WhatsApp adapters, crons, webhooks

@@ -80,11 +80,10 @@ async function authenticate(
     if (locking) {
       await writeAudit(ctx, {
         organizationId: org._id,
-        actorUserId: membership.userId,
+        kioskDeviceId: ctx.kiosk.device._id,
         action: "attendance.pin_locked",
         resourceType: "membership",
         resourceId: membership._id,
-        metadata: { deviceId: ctx.kiosk.device._id },
       });
     }
     return null;

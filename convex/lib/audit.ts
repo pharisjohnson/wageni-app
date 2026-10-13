@@ -11,7 +11,9 @@ export async function writeAudit(
   ctx: MutationCtx,
   entry: {
     organizationId: Id<"organizations">;
-    actorUserId: Id<"users">;
+    /** A signed-in user, or (kiosk self-service) the paired device. One of the two. */
+    actorUserId?: Id<"users">;
+    kioskDeviceId?: Id<"kioskDevices">;
     action: string;
     resourceType: string;
     resourceId: string;

@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, LogIn, LogOut } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -9,9 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/convex/_generated/api";
-import { errorCode } from "@/lib/auth/errors";
 import { PIN_PATTERN } from "@/lib/attendance/sessions";
-import { useKioskDevice } from "@/lib/kiosk/use-kiosk-device";
+import { errorCode, KioskUnpairedError, useKioskApi } from "@/lib/kiosk/use-kiosk-api";
 
 /** Seconds the confirmation stays up before the kiosk returns to the welcome screen. */
 const DONE_SECONDS = 15;
@@ -36,9 +34,7 @@ const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digi
 export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" }) {
   const org = useKioskOrg();
   const router = useRouter();
-  const { kiosk, unpair } = useKioskDevice(org.slug);
-  const identify = useMutation(api.kioskAttendance.identify);
-  const record = useMutation(api.kioskAttendance.record);
+  const kioskApi = useKioskApi(org.slug);
   const [staffNumber, setStaffNumber] = useState("");
   const [pin, setPin] = useState("");
   const [step, setStep] = useState<Step>({ name: "identify" });
@@ -60,12 +56,9 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
     window.setTimeout(() => numberRef.current?.focus(), 0);
   }
 
-  /** NOT_FOUND from a kiosk call means this device is no longer trusted: forget it. */
+  /** NOT_FOUND means this device is no longer trusted; useKioskApi already unpaired it. */
   function handleCallError(e: unknown) {
-    if (errorCode(e) === "NOT_FOUND") {
-      unpair();
-      return;
-    }
+    if (e instanceof KioskUnpairedError) return;
     reset(
       errorCode(e) === "RATE_LIMITED"
         ? "Too many attempts. Please wait a moment and try again."
@@ -75,14 +68,14 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
 
   async function onIdentify(e: FormEvent) {
     e.preventDefault();
-    if (kiosk === "skip" || busy) return;
+    if (busy) return;
     if (!staffNumber.trim() || !PIN_PATTERN.test(pin)) {
       setStep({ name: "identify", error: "Enter your staff number and your 4 to 6 digit PIN." });
       return;
     }
     setBusy(true);
     try {
-      const r = await identify({ ...kiosk, staffNumber, pin });
+      const r = await kioskApi.mutation(api.kioskAttendance.identify, { staffNumber, pin });
       if (!r.ok) return reset(GENERIC_FAILURE);
       const alreadyDone = checkingIn ? r.status === "in" : r.status === "out";
       setStep({ name: "confirm", firstName: r.firstName, alreadyDone, since: r.since });
@@ -94,10 +87,10 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
   }
 
   async function onRecord() {
-    if (kiosk === "skip" || busy) return;
+    if (busy) return;
     setBusy(true);
     try {
-      const r = await record({ ...kiosk, staffNumber, pin, type });
+      const r = await kioskApi.mutation(api.kioskAttendance.record, { staffNumber, pin, type });
       // The PIN is no longer needed whatever happened.
       setPin("");
       setStaffNumber("");
