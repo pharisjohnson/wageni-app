@@ -26,6 +26,16 @@
 | Tests: 9 Convex tests (flow, permissions, tenant and site isolation) | Passing |
 | Appointment/visit detail pages, reschedule UI, kiosk visitor/staff flows | Not started |
 
+## Kiosk trust (K1)
+
+| Area | Status |
+| --- | --- |
+| `kioskDevices` table, admin issue/list/revoke (audited, hash never returned) | Done |
+| `kioskQuery` / `kioskMutation` builders with per-device rate limit | Done |
+| Sites page "Kiosk devices" UI, `/kiosk/<slug>/setup` pairing, `useKioskDevice()` | Done |
+| Convex tests (`tests/convex/kiosk.test.ts`) | Passing |
+| Kiosk visitor/staff flows using the builders | Wave 2 |
+
 ## Needs your credentials
 
 - **Convex**: run `pnpm convex:dev` (creates the deployment and real codegen).

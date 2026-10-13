@@ -1,3 +1,4 @@
+import { KioskDeviceGate } from "@/components/kiosk/kiosk-device-gate";
 import { KioskPlaceholder } from "@/components/kiosk/kiosk-placeholder";
 
 /**
@@ -6,9 +7,11 @@ import { KioskPlaceholder } from "@/components/kiosk/kiosk-placeholder";
  */
 export default function KioskStaffPage() {
   return (
-    <KioskPlaceholder
-      title="Staff check-in"
-      message="Staff check-in at the kiosk is not available yet. Please use your usual attendance process."
-    />
+    <KioskDeviceGate>
+      <KioskPlaceholder
+        title="Staff check-in"
+        message="Staff check-in at the kiosk is not available yet. Please use your usual attendance process."
+      />
+    </KioskDeviceGate>
   );
 }
