@@ -9,13 +9,13 @@ export function PricingGrid() {
   return (
     <div className="grid gap-4 md:grid-cols-3">
       {PLANS.map((plan) => (
-        <Card key={plan.id} className={cn(plan.highlighted && "ring-2 ring-primary")}>
+        <Card key={plan.id} className={cn("rounded-3xl", plan.highlighted && "ring-2 ring-primary")}>
           <CardHeader>
-            <CardTitle>{plan.name}</CardTitle>
+            <CardTitle className="font-display text-xl font-bold">{plan.name}</CardTitle>
             <CardDescription>{plan.description}</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 space-y-4">
-            <p className="text-2xl font-semibold">{plan.priceLabel}</p>
+            <p className="font-display text-2xl font-bold">{plan.priceLabel}</p>
             <ul className="space-y-2 text-sm">
               {plan.features.map((f) => (
                 <li key={f} className="flex gap-2">

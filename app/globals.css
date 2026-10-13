@@ -7,9 +7,10 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
+  --font-display: var(--font-display);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -127,4 +128,28 @@
   html {
     @apply font-sans;
   }
+}
+/* Marketing site theme: warm paper background, deep teal, amber accent.
+   Scoped so the signed-in app keeps its own styling. */
+.theme-marketing {
+  --background: #faf9f5;
+  --foreground: #0c2427;
+  --card: #faf9f5;
+  --card-foreground: #0c2427;
+  --primary: #0b5d59;
+  --primary-foreground: #f4faf9;
+  --secondary: #e2eeed;
+  --secondary-foreground: #0c2427;
+  --muted: #e2eeed;
+  --muted-foreground: #5b6a6b;
+  --accent: #e2eeed;
+  --accent-foreground: #0c2427;
+  --border: #e3e1d8;
+  --input: #e3e1d8;
+  --ring: #0b5d59;
+  --radius: 0.75rem;
+  --brand-ink: #04191c;
+  --brand-amber: #e8a838;
+  background: var(--background);
+  color: var(--foreground);
 }

@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 
 test("landing page explains the product and links to sign-up", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("visitors and staff");
-  await expect(page.getByRole("link", { name: "Register your organization" })).toHaveAttribute("href", "/sign-up");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("front desk your organization deserves");
+  await expect(page.getByRole("link", { name: "Create your organization" })).toHaveAttribute("href", "/sign-up");
   await expect(page.locator("#features")).toBeVisible();
 });
 
