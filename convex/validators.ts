@@ -69,3 +69,21 @@ export const vCheckOutMethod = v.union(
   v.literal("reception"),
   v.literal("kiosk"),
 );
+
+// --- A1: staff attendance
+export const vAttendanceType = v.union(v.literal("clock_in"), v.literal("clock_out"));
+
+/** `correction` events are written only when a correction request is approved. */
+export const vAttendanceSource = v.union(
+  v.literal("app"),
+  v.literal("kiosk"),
+  v.literal("reception"),
+  v.literal("correction"),
+);
+
+export const vCorrectionStatus = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("rejected"),
+);
+// --- end A1

@@ -13,6 +13,9 @@ import {
   vCheckOutMethod,
   vVisitEventType,
   vVisitStatus,
+  vAttendanceType,
+  vAttendanceSource,
+  vCorrectionStatus,
 } from "./validators";
 
 /**
@@ -56,12 +59,15 @@ export default defineSchema({
     permissionOverrides: vPermissionOverrides,
     siteAccess: vSiteAccess,
     status: vMembershipStatus,
+    // A1: kiosk staff identifier (unique per organization, upper case).
+    staffNumber: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_org", ["organizationId"])
     .index("by_user", ["userId"])
-    .index("by_org_user", ["organizationId", "userId"]),
+    .index("by_org_user", ["organizationId", "userId"])
+    .index("by_org_staff_number", ["organizationId", "staffNumber"]),
 
   sites: defineTable({
     organizationId: v.id("organizations"),
@@ -187,4 +193,62 @@ export default defineSchema({
     .index("by_gate", ["gateId"])
     .index("by_token_hash", ["tokenHash"]),
   // --- end K1
+
+  // --- A1: staff attendance
+  // Append-only: never patched or deleted. Corrections add NEW events that
+  // reference the event they replace (`correctsEventId`).
+  attendanceEvents: defineTable({
+    organizationId: v.id("organizations"),
+    siteId: v.id("sites"),
+    userId: v.id("users"),
+    type: vAttendanceType,
+    at: v.number(),
+    source: vAttendanceSource,
+    gateId: v.optional(v.id("gates")),
+    kioskDeviceId: v.optional(v.id("kioskDevices")),
+    // Who entered it when it was not the person themselves (reception, manager).
+    recordedBy: v.optional(v.id("users")),
+    // Set only on events produced by an approved correction.
+    correctionId: v.optional(v.id("attendanceCorrections")),
+    correctsEventId: v.optional(v.id("attendanceEvents")),
+    createdAt: v.number(),
+  })
+    .index("by_user_at", ["organizationId", "userId", "at"])
+    .index("by_site_at", ["siteId", "at"]),
+
+  // Requests only change `status` and the decision fields, once.
+  attendanceCorrections: defineTable({
+    organizationId: v.id("organizations"),
+    siteId: v.id("sites"),
+    userId: v.id("users"),
+    requestedBy: v.id("users"),
+    originalEventId: v.optional(v.id("attendanceEvents")),
+    proposedType: vAttendanceType,
+    proposedAt: v.number(),
+    reason: v.string(),
+    status: vCorrectionStatus,
+    decidedBy: v.optional(v.id("users")),
+    decidedAt: v.optional(v.number()),
+    decisionNote: v.optional(v.string()),
+    resultEventId: v.optional(v.id("attendanceEvents")),
+    createdAt: v.number(),
+  })
+    .index("by_org_status", ["organizationId", "status", "createdAt"])
+    .index("by_user_status", ["organizationId", "userId", "status"])
+    .index("by_original", ["originalEventId"]),
+
+  // Kiosk PINs. Only a salted PBKDF2 hash is stored; never returned to clients.
+  staffPins: defineTable({
+    organizationId: v.id("organizations"),
+    userId: v.id("users"),
+    pinHash: v.string(),
+    salt: v.string(),
+    iterations: v.number(),
+    failedAttempts: v.number(),
+    lockedUntil: v.optional(v.number()),
+    setBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_user", ["organizationId", "userId"]),
+  // --- end A1
 });

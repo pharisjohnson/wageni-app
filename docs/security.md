@@ -94,6 +94,32 @@ so the device token fixes org, site and gate; the visitor never supplies them.
   the 60/minute device rate limit. A visitor can learn whether a phone number
   has an appointment today by knowing that number (inherent to phone lookup).
 
+## Staff attendance and kiosk PINs (A1)
+
+- **Append-only.** `attendanceEvents` are only inserted. A correction request
+  (`attendanceCorrections`) changes only its own status; approving inserts a new
+  event (`source: "correction"`, `correctionId`, `correctsEventId`). The
+  original stays and is merely excluded from hour totals. Nobody can decide a
+  correction to their own attendance.
+- **Identification at the kiosk** is staff number (per organization, set by a
+  manager) plus PIN (4-6 digits, weak runs and repeats refused). The device
+  token authorises the kiosk, the PIN authorises the person, and both are
+  verified server-side on every call (`identify` and again on `record`). The
+  client keeps them in React state only, never in storage.
+- **PIN storage.** PBKDF2-HMAC-SHA256, 100k iterations, random 16-byte salt per
+  user, constant-time compare. Never returned, logged or shown; managers can
+  only reset (delete) a PIN, the person sets a new one while signed in.
+- **Lockout.** 5 wrong PINs lock the person for 15 minutes; a reset or a new PIN
+  unlocks. Kiosk functions RETURN `{ ok: false }` (not throw) so the counter
+  is not rolled back. Unknown staff number, wrong PIN, no PIN, locked, disabled
+  and no-site-access all return the identical result and burn comparable CPU.
+  Lockout is audited (`attendance.pin_locked`, by device).
+- **Residual risks.** A 4-6 digit PIN has little entropy: protection rests on the
+  lockout, device token and rate limit. An attacker with a paired kiosk can lock
+  out a known staff number (denial of service) for 15 minutes at a time.
+  Staff numbers are not secret (printed on badges is fine). Correction times are
+  entered in the device's time zone, not the site's.
+
 ## Known gaps / backlog
 
 - Rate limiting for public endpoints (kiosk registration arrives in Phase 2,
