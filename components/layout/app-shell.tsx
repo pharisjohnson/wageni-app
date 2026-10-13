@@ -44,12 +44,17 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div className="flex h-full flex-col gap-4 p-3">
-      <Link href="/app" className="px-3 pt-1 text-lg font-semibold" onClick={onNavigate}>
+    <div className="flex h-full min-h-0 flex-col gap-4 p-3">
+      <Link href="/app" className="shrink-0 px-3 pt-1 text-lg font-semibold" onClick={onNavigate}>
         {appConfig.name}
       </Link>
-      <OrgSwitcher />
-      <NavLinks onNavigate={onNavigate} />
+      <div className="shrink-0">
+        <OrgSwitcher />
+      </div>
+      {/* Scrolls on its own so the nav stays reachable however long the page is. */}
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1">
+        <NavLinks onNavigate={onNavigate} />
+      </div>
     </div>
   );
 }

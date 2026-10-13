@@ -2,10 +2,14 @@
 
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { ArrowLeft, Home } from "lucide-react";
 import { createContext, useContext, useEffect, type CSSProperties, type ReactNode } from "react";
 import { FullPageSpinner } from "@/components/layout/full-page-spinner";
+import { buttonVariants } from "@/components/ui/button";
 import { api } from "@/convex/_generated/api";
+import { cn } from "@/lib/utils";
 
 type KioskOrg = NonNullable<FunctionReturnType<typeof api.organizations.getPublicBySlug>>;
 
@@ -54,9 +58,30 @@ function readableForeground(hex: string) {
   return luminance > 0.179 ? "#000000" : "#ffffff";
 }
 
+/** Back / Home controls, shown on every kiosk screen below the welcome screen. */
+function KioskNav({ home }: { home: string }) {
+  const pathname = usePathname();
+  if (pathname === home) return null;
+  const parent = pathname.slice(0, pathname.lastIndexOf("/")) || home;
+  const size = "h-12 px-5 text-base";
+  return (
+    <nav aria-label="Kiosk navigation" className="flex gap-3 px-6 pt-4">
+      <Link href={parent} className={cn(buttonVariants({ variant: "outline" }), size)}>
+        <ArrowLeft aria-hidden /> Back
+      </Link>
+      {parent !== home && (
+        <Link href={home} className={cn(buttonVariants({ variant: "ghost" }), size)}>
+          <Home aria-hidden /> Start over
+        </Link>
+      )}
+    </nav>
+  );
+}
+
 export function KioskFrame({ slug, children }: { slug: string; children: ReactNode }) {
   const org = useQuery(api.organizations.getPublicBySlug, { slug });
-  useInactivityReset(`/kiosk/${slug}`);
+  const home = `/kiosk/${slug}`;
+  useInactivityReset(home);
 
   if (org === undefined) return <FullPageSpinner />;
   if (org === null) {
@@ -85,6 +110,7 @@ export function KioskFrame({ slug, children }: { slug: string; children: ReactNo
           ) : null}
           <span className="text-lg font-semibold">{org.name}</span>
         </header>
+        <KioskNav home={home} />
         <main className="flex flex-1 flex-col items-center justify-center p-6">{children}</main>
       </div>
     </KioskContext.Provider>

@@ -24,7 +24,9 @@
 | Appointments: book (incl. on behalf of hosts), approve/decline, cancel, reschedule | Done (backend); list/book/approve/cancel/check-in UI |
 | Gate check-in/out, walk-in registration, admit, badge codes | Done (backend); visits page UI |
 | Tests: 9 Convex tests (flow, permissions, tenant and site isolation) | Passing |
-| Appointment/visit detail pages, reschedule UI, kiosk visitor/staff flows | Not started |
+| Host check-out: `visits:check_out_own`, `hostCheckOut`, `meeting_ended` event, `checkedOutMethod`, optional gate on `checkOut`, `myVisitors`, `recentCheckOuts` | Done (R1) |
+| Visit and appointment detail pages (timeline, approval history, reschedule), "My visitors" and "Cleared by host" on visits page | Done (R1); staff-on-behalf is a link placeholder |
+| Kiosk visitor/staff flows | Not started |
 
 ## Needs your credentials
 
