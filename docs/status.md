@@ -49,7 +49,7 @@
 | `visitEvents`/`auditLogs` accept a kiosk device as actor (`kioskDeviceId`); shared lifecycle logic in `convex/lib/visits.ts` | Done |
 | `useKioskApi` (NOT_FOUND unpairs the device) + gate verifies token on mount | Done |
 | Convex tests (`tests/convex/kioskVisitor.test.ts`), unit tests (`tests/unit/time.test.ts`) | Passing |
-| Booking codes, host notification on arrival (N1), forms (F1) | Not started |
+| Booking codes, forms (F1) | Not started (host notification on arrival: done, N1) |
 | Browser verification of kiosk screens (needs Convex + Clerk + a paired device) | Not done |
 
 ## Staff attendance, Phase 3 (A1)
@@ -66,6 +66,38 @@
 
 Not done: voiding an entry without a replacement, exports and reports of hours (Phase 5), manager notifications.
 
+## Notifications, crons and webhooks, Phase 6 (N1)
+
+| Area | Status |
+| --- | --- |
+| One `NotificationChannel` interface (`lib/notifications/channels.ts`); dry-run adapter is the default and records instead of sending; thin `fetch` adapters for Resend-style email, Africa's Talking SMS and WhatsApp Cloud API, chosen by env vars | Done; real adapters never exercised (no credentials), unit-tested against mocked `fetch` only |
+| Tables `notificationOutbox`, `notificationPreferences`, `notificationSettings`, `notificationUsage`; idempotency keys, per-org hourly limit (300), quiet hours, retries after 1/5/30 min then `failed` | Done |
+| Triggers: host on arrival (kiosk, guard admit, walk-in admitted at once), walk-in waiting, appointment requested/approved/declined/cancelled/rescheduled, reminder 1h before, missed clock-out, stale corrections alert, `notifications.onInvitationCreated` for F1 | Done |
+| Crons: reminders (15 min), staff scan (30 min), outbox retry (10 min), outbox purge (daily, 90 days). P1's retention sweep is registered (daily 01:00 UTC); F1 file cleanup is still commented in `convex/crons.ts` until that function exists | Done |
+| Webhook `POST /webhooks/notifications` (HMAC, constant-time, 5 min replay window, generic 4xx) | Done |
+| UI: `/app/messages` (stats, filters, retry), `/app/messages/settings` (channels, sender, wording), `/app/integrations` (mode per channel, test-send), notification preferences card on `/app/attendance` | Done; not exercised in a browser |
+| New permission `messages:read` (owner, admin, receptionist); settings, retry and test-send use `integrations:manage` | Done |
+| Tests: `tests/convex/notifications.test.ts`, `tests/unit/notifications.test.ts` | Passing |
+
+Not done: Swahili text (structure ready), provider-specific webhook adapters (Resend, Africa's Talking and Meta sign differently, so a relay or per-provider mapping is needed), SMS/WhatsApp to staff needs a phone each member enters themselves, per-recipient rate limits, visitor opt-out.
+
+Integration notes. F1: call `ctx.scheduler.runAfter(0, internal.notifications.onInvitationCreated, { organizationId, siteId?, invitee: { name?, email?, phone? }, link, idempotencyKey })`. F1: uncomment the file cleanup line in `convex/crons.ts` once `internal.files.purgeExpired` exists. The outbox holds addresses and first names for at most 90 days (`notificationsCron.purgeOld`); P1's `retention.purgeExpired` also deletes settled rows older than the organization's visitor-record period, so the effective window is the shorter of 90 days and that setting.
+
+## Reports, audit and retention, Phase 5 (P1)
+
+| Item | State |
+| --- | --- |
+| `convex/reports.ts` (`filterOptions`, `visits`, `onSite`, `appointments`, `hostMeetings`, `attendance`, `today`): `reports:read`, site-access aware, date ranges bounded (93 days, attendance 62), reads capped (3000 visits/appointments, 200 people) with a `truncated` flag | Done |
+| Reports UI `/app/reports`: tabs, filter bar (presets, site, host/person), summary cards, SVG charts with text alternatives, tables, skeletons, empty states, attendance person drill-down with Back | Done |
+| CSV: `reportsExport.csv` mutation (`reports:export`), BOM, RFC 4180 quoting, formula-injection prefixing (`lib/csv.ts`), 5000-row cap with message, audit entry per export, phone/email columns excluded unless `forms:read_sensitive` (not defined yet, so currently refused for everyone) | Done |
+| Audit UI `/app/audit` (`audit:read`): filters (person, action, record type, dates), readable labels, kiosk-device and system actors, pagination; nav item | Done |
+| Retention: settings section on Settings (defaults 365 / 730 / 2555 days; minimums 30 / 365 / 365), `retention.purgeExpired` (internal, `dryRun`, bounded batches, self-rescheduling), `retention.sweepAll` daily cron registered in `convex/crons.ts` via `registerRetentionCron` | Done |
+| Dashboard: today's on site / expected / checked in / staff in (`reports.today`, per-permission) | Done |
+
+Definitions to confirm with a product owner: a **no-show** is an approved appointment past its end that was never checked in; **late** is a first clock-in after 09:00 local on a weekday (`lateAfterMinutes` argument, no shift schedules exist yet); **absent** is a weekday with no clock-in before today, counted from the member's join date; visit **duration** is check-in to the host's `meeting_ended`, else check-out. Visits are ranged by creation time. "On site at time T" looks back 14 days for visits that started earlier.
+
+Retention behaviour: visits are anonymised, never deleted (badge code cleared; the visitor's name/phone/email/company replaced once no un-anonymised visit or recent appointment references them; on-site visits are skipped; appointment text such as purpose and decision note is kept). Audit entries and attendance events/decided corrections past their period are deleted (a documented exception to append-only, never inside the minimum of one year). `visitEvents` hold no personal data and stay. Settled notification outbox rows follow the visitor-record period too.
+
 ## Needs your credentials
 
 - **Convex**: run `pnpm convex:dev` (creates the deployment and real codegen).
@@ -76,8 +108,6 @@ Not done: voiding an entry without a replacement, exports and reports of hours (
 ## Not started (by phase)
 
 4. Invitations, form builder (versioned), approval/notification policies
-5. Reports, CSV exports, audit UI, retention
-6. Email/SMS/WhatsApp adapters, crons, webhooks
 7. Plans, usage metering, billing provider, trials
 8. Hardening, monitoring, backups, deployment docs, dedicated deployments
 

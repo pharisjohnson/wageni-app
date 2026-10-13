@@ -135,7 +135,7 @@ describe("retention.purgeExpired", () => {
     const before = await snapshot(t, s);
     const res = await purge(t, s, true);
     expect(res.dryRun).toBe(true);
-    expect(res.counts).toEqual({ visits: 2, visitors: 1, auditLogs: 1, attendanceEvents: 1, attendanceCorrections: 1 });
+    expect(res.counts).toEqual({ visits: 2, visitors: 1, auditLogs: 1, attendanceEvents: 1, attendanceCorrections: 1, outboxMessages: 0 });
     expect(await snapshot(t, s)).toEqual(before);
   });
 
@@ -144,7 +144,7 @@ describe("retention.purgeExpired", () => {
     const s = await setup(t);
     await seed(t, s);
     const res = await purge(t, s, false);
-    expect(res.counts).toEqual({ visits: 2, visitors: 1, auditLogs: 1, attendanceEvents: 1, attendanceCorrections: 1 });
+    expect(res.counts).toEqual({ visits: 2, visitors: 1, auditLogs: 1, attendanceEvents: 1, attendanceCorrections: 1, outboxMessages: 0 });
     expect(res.hasMore).toBe(false);
 
     const after = await snapshot(t, s);
@@ -206,7 +206,7 @@ describe("retention.purgeExpired", () => {
     });
     await seed(t, s);
     const res = await purge(t, s, true);
-    expect(res.counts).toEqual({ visits: 0, visitors: 0, auditLogs: 0, attendanceEvents: 1, attendanceCorrections: 1 }); // only the 4000-day-old attendance is past even the 10-year cap
+    expect(res.counts).toEqual({ visits: 0, visitors: 0, auditLogs: 0, attendanceEvents: 1, attendanceCorrections: 1, outboxMessages: 0 }); // only the 4000-day-old attendance is past even the 10-year cap
   });
 
   test("batches are bounded and hasMore says so", async () => {
@@ -219,6 +219,38 @@ describe("retention.purgeExpired", () => {
     const all = await purge(t, s, true, { batchSize: 10 });
     expect(all.counts.visits).toBe(3);
     expect(all.hasMore).toBe(false);
+  });
+
+  test("settled outbox rows follow the visitor-record period; queued rows stay", async () => {
+    const t = newTest();
+    const s = await setup(t);
+    const row = (status: "sent" | "queued", key: string, daysAgo: number) =>
+      t.run((ctx) =>
+        ctx.db.insert("notificationOutbox", {
+          organizationId: s.organizationId,
+          channel: "email",
+          eventType: "x",
+          templateKey: "x",
+          recipientKind: "visitor",
+          to: "a@example.com",
+          payload: {},
+          status,
+          attempts: 0,
+          idempotencyKey: key,
+          createdAt: Date.now() - daysAgo * DAY,
+        }),
+      );
+    await row("sent", "old", 60);
+    await row("queued", "oldq", 60);
+    await row("sent", "new", 5);
+    await s.owner.as.mutation(api.retention.update, {
+      organizationId: s.organizationId,
+      retention: { visitRecordsDays: 30, auditLogDays: 730, attendanceDays: 2555 },
+    });
+    const res = await purge(t, s, false);
+    expect(res.counts.outboxMessages).toBe(1);
+    const keys = await t.run(async (ctx) => (await ctx.db.query("notificationOutbox").collect()).map((r) => r.idempotencyKey).sort());
+    expect(keys).toEqual(["new", "oldq"]);
   });
 
   test("never touches another organization", async () => {

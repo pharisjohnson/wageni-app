@@ -29,6 +29,7 @@ import { vRetention } from "./validators";
  *    On-site visits are never touched.
  *  - Audit log (`auditLogDays`, minimum 1 year): deleted. This is the one
  *    sanctioned deletion from an otherwise append-only table.
+ *  - Notification outbox (follows `visitRecordsDays`): settled rows deleted.
  *  - Attendance (`attendanceDays`, minimum 1 year): events and decided
  *    correction requests are deleted (also an append-only exception, taken
  *    only past the retention period). Pending corrections are kept.
@@ -47,6 +48,8 @@ export type ExpiredCounts = {
   auditLogs: number;
   attendanceEvents: number;
   attendanceCorrections: number;
+  /** N1 notification outbox rows (they hold recipient addresses). */
+  outboxMessages: number;
 };
 
 async function collectExpired(ctx: QueryCtx, org: Doc<"organizations">, now: number, batch: number) {
@@ -114,18 +117,28 @@ async function collectExpired(ctx: QueryCtx, org: Doc<"organizations">, now: num
     corrections.push(...rows.map((r) => r._id));
   }
 
+  // N1's own job also deletes settled outbox rows at 90 days; this honours a
+  // shorter organization setting (minimum 30 days). Queued rows are never touched.
+  const outbox = await ctx.db
+    .query("notificationOutbox")
+    .withIndex("by_org_created", (q) => q.eq("organizationId", orgId).lt("createdAt", visitCutoff))
+    .filter((q) => q.neq(q.field("status"), "queued"))
+    .take(batch);
+
   const counts: ExpiredCounts = {
     visits: visits.length,
     visitors: visitorIds.length,
     auditLogs: auditLogs.length,
     attendanceEvents: attendanceEvents.length,
     attendanceCorrections: corrections.length,
+    outboxMessages: outbox.length,
   };
   const hasMore =
     visits.length >= batch ||
     auditLogs.length >= batch ||
     attendanceEvents.length >= batch ||
-    corrections.length >= batch;
+    corrections.length >= batch ||
+    outbox.length >= batch;
   return {
     retention,
     counts,
@@ -135,6 +148,7 @@ async function collectExpired(ctx: QueryCtx, org: Doc<"organizations">, now: num
     auditIds: auditLogs.map((x) => x._id),
     attendanceEventIds: attendanceEvents,
     correctionIds: corrections,
+    outboxIds: outbox.map((x) => x._id),
   };
 }
 
@@ -197,7 +211,7 @@ export const purgeExpired = internalMutation({
   },
   handler: async (ctx, args): Promise<{ dryRun: boolean; counts: ExpiredCounts; hasMore: boolean }> => {
     const org = await ctx.db.get(args.organizationId);
-    const empty: ExpiredCounts = { visits: 0, visitors: 0, auditLogs: 0, attendanceEvents: 0, attendanceCorrections: 0 };
+    const empty: ExpiredCounts = { visits: 0, visitors: 0, auditLogs: 0, attendanceEvents: 0, attendanceCorrections: 0, outboxMessages: 0 };
     if (!org) return { dryRun: args.dryRun, counts: empty, hasMore: false };
     const now = args.now ?? Date.now();
     const batch = batchOf(args.batchSize);
@@ -220,6 +234,7 @@ export const purgeExpired = internalMutation({
     for (const id of found.auditIds) await ctx.db.delete(id);
     for (const id of found.attendanceEventIds) await ctx.db.delete(id);
     for (const id of found.correctionIds) await ctx.db.delete(id);
+    for (const id of found.outboxIds) await ctx.db.delete(id);
 
     const total = Object.values(found.counts).reduce((a, b) => a + b, 0);
     if (total > 0) {

@@ -48,6 +48,9 @@ export const ROLE_PERMISSIONS: Record<OrgRole, readonly Permission[]> = {
     "staff_attendance:read_site",
     "staff_attendance:record_on_behalf",
     // --- end A1
+    // --- N1
+    "messages:read",
+    // --- end N1
   ],
   guard: [
     "appointments:read_site",

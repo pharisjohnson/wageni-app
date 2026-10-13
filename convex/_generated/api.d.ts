@@ -13,8 +13,10 @@
 import type * as attendance from "../attendance.js";
 import type * as attendancePins from "../attendancePins.js";
 import type * as audit from "../audit.js";
+import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as gates from "../gates.js";
+import type * as http from "../http.js";
 import type * as kiosk from "../kiosk.js";
 import type * as kioskAttendance from "../kioskAttendance.js";
 import type * as kioskDevices from "../kioskDevices.js";
@@ -26,6 +28,7 @@ import type * as lib_errors from "../lib/errors.js";
 import type * as lib_functions from "../lib/functions.js";
 import type * as lib_kiosk from "../lib/kiosk.js";
 import type * as lib_kioskLookup from "../lib/kioskLookup.js";
+import type * as lib_notify from "../lib/notify.js";
 import type * as lib_pin from "../lib/pin.js";
 import type * as lib_reportExport from "../lib/reportExport.js";
 import type * as lib_reports from "../lib/reports.js";
@@ -35,6 +38,9 @@ import type * as lib_validate from "../lib/validate.js";
 import type * as lib_visitors from "../lib/visitors.js";
 import type * as lib_visits from "../lib/visits.js";
 import type * as memberships from "../memberships.js";
+import type * as notifications from "../notifications.js";
+import type * as notificationsCron from "../notificationsCron.js";
+import type * as notificationsDelivery from "../notificationsDelivery.js";
 import type * as organizations from "../organizations.js";
 import type * as platform from "../platform.js";
 import type * as reports from "../reports.js";
@@ -59,8 +65,10 @@ import type * as visits from "../visits.js";
 "attendance": typeof attendance,
 "attendancePins": typeof attendancePins,
 "audit": typeof audit,
+"crons": typeof crons,
 "dashboard": typeof dashboard,
 "gates": typeof gates,
+"http": typeof http,
 "kiosk": typeof kiosk,
 "kioskAttendance": typeof kioskAttendance,
 "kioskDevices": typeof kioskDevices,
@@ -72,6 +80,7 @@ import type * as visits from "../visits.js";
 "lib/functions": typeof lib_functions,
 "lib/kiosk": typeof lib_kiosk,
 "lib/kioskLookup": typeof lib_kioskLookup,
+"lib/notify": typeof lib_notify,
 "lib/pin": typeof lib_pin,
 "lib/reportExport": typeof lib_reportExport,
 "lib/reports": typeof lib_reports,
@@ -81,6 +90,9 @@ import type * as visits from "../visits.js";
 "lib/visitors": typeof lib_visitors,
 "lib/visits": typeof lib_visits,
 "memberships": typeof memberships,
+"notifications": typeof notifications,
+"notificationsCron": typeof notificationsCron,
+"notificationsDelivery": typeof notificationsDelivery,
 "organizations": typeof organizations,
 "platform": typeof platform,
 "reports": typeof reports,

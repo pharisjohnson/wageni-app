@@ -95,3 +95,13 @@ export const vRetention = v.object({
   attendanceDays: v.number(),
 });
 // --- end P1
+
+// --- N1: notifications
+export const vChannel = v.union(v.literal("email"), v.literal("sms"), v.literal("whatsapp"));
+export const vNotificationStatus = v.union(
+  v.literal("queued"),
+  v.literal("sent"),
+  v.literal("failed"),
+  v.literal("skipped"),
+);
+// --- end N1

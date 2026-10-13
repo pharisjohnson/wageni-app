@@ -11,10 +11,10 @@ import { internal } from "../_generated/api";
  *   registerRetentionCron(crons);
  *   export default crons;
  *
- * Runs at 02:30 UTC. Each run fans out one `retention.purgeExpired` per
+ * Runs at 01:00 UTC. Each run fans out one `retention.purgeExpired` per
  * organization; each of those works in bounded batches and reschedules
  * itself until the backlog is clear.
  */
 export function registerRetentionCron(crons: ReturnType<typeof cronJobs>) {
-  crons.daily("retention purge", { hourUTC: 2, minuteUTC: 30 }, internal.retention.sweepAll, {});
+  crons.daily("retention purge", { hourUTC: 1, minuteUTC: 0 }, internal.retention.sweepAll, {});
 }
