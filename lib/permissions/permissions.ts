@@ -27,6 +27,9 @@ export const PERMISSIONS = [
   "reports:export",
   "audit:read",
   "forms:manage",
+  // --- F1: reading sensitive form answers (ID scans, faces, ID numbers) and files
+  "forms:read_sensitive",
+  // --- end F1
   "members:read",
   "members:manage",
   "sites:read",
