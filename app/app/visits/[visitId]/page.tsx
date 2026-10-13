@@ -5,6 +5,7 @@ export default function Page() {
     <ComingSoon
       title="Visit"
       phase={2}
+      back={{ href: "/app/visits", label: "Visits" }}
       summary="Visit timeline with every check-in, check-out and status change."
     />
   );

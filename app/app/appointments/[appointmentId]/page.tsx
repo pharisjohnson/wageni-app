@@ -5,6 +5,7 @@ export default function Page() {
     <ComingSoon
       title="Appointment"
       phase={2}
+      back={{ href: "/app/appointments", label: "Appointments" }}
       summary="Appointment details, approval history and visitor information."
     />
   );

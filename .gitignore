@@ -48,3 +48,6 @@ next-env.d.ts
 /playwright/.cache/
 
 .vercel
+
+# agent worktrees
+.claude/worktrees/

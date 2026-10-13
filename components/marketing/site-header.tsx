@@ -37,6 +37,9 @@ export function SiteHeader() {
           <Link href="/#features" className={buttonVariants({ variant: "ghost", size: "sm", className: "max-sm:hidden" })}>
             Features
           </Link>
+          <Link href="/#faq" className={buttonVariants({ variant: "ghost", size: "sm", className: "max-sm:hidden" })}>
+            FAQ
+          </Link>
           <Link href="/pricing" className={buttonVariants({ variant: "ghost", size: "sm", className: "max-sm:hidden" })}>
             Pricing
           </Link>
