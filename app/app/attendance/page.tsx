@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { LogIn, LogOut } from "lucide-react";
 import { toast } from "sonner";
+import { ClockInForm } from "@/components/attendance/clock-in-form";
 import { CorrectionForm } from "@/components/attendance/correction-form";
 import {
   CorrectionList,
@@ -56,6 +57,12 @@ export default function AttendancePage() {
 
   const siteId = siteChoice ?? status?.sites[0]?._id ?? null;
   const isIn = status?.status === "in";
+  // A staff form published for the site (daily declaration, shift note...) is answered to clock in.
+  const staffForm = useQuery(
+    api.attendance.activeStaffForm,
+    status?.canClock && !isIn && siteId ? { organizationId, siteId } : "skip",
+  );
+  const [answering, setAnswering] = useState(false);
 
   async function toggle() {
     if (!status) return;
@@ -65,6 +72,10 @@ export default function AttendancePage() {
         await clockOut({ organizationId });
         toast.success("Clocked out");
       } else if (siteId) {
+        if (staffForm) {
+          setAnswering(true);
+          return;
+        }
         await clockIn({ organizationId, siteId });
         toast.success("Clocked in");
       }
@@ -122,7 +133,7 @@ export default function AttendancePage() {
                   size="lg"
                   className="h-16 w-full px-10 text-lg sm:w-auto"
                   variant={isIn ? "secondary" : "default"}
-                  disabled={busy || (!isIn && !siteId)}
+                  disabled={busy || (!isIn && (!siteId || staffForm === undefined))}
                   onClick={toggle}
                 >
                   {isIn ? <LogOut aria-hidden /> : <LogIn aria-hidden />}
@@ -133,6 +144,16 @@ export default function AttendancePage() {
           )}
         </CardContent>
       </Card>
+
+      {answering && staffForm && siteId && !isIn && (
+        <ClockInForm
+          key={staffForm.versionId}
+          siteId={siteId}
+          form={staffForm}
+          onDone={() => setAnswering(false)}
+          onCancel={() => setAnswering(false)}
+        />
+      )}
 
       {correcting && correctionSite && (
         <CorrectionForm

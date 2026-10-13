@@ -8,9 +8,10 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { friendlyKioskError, KioskUnpairedError, useKioskApi } from "@/lib/kiosk/use-kiosk-api";
 import { kioskPhoneSchema } from "@/lib/validation/visits";
 import { KioskButton, KioskDone, KioskField, KioskMessage, KioskPanel } from "../_components/kiosk-ui";
+import { AppointmentFormStep, type AppointmentForm, type CheckedIn } from "./appointment-form";
 
 type Match = { appointmentId: Id<"appointments">; firstName: string; hostName: string; startAt: number };
-type Done = { firstName: string; hostName: string; badgeCode: string };
+type Done = CheckedIn;
 
 const NO_MATCH = "We could not find an appointment for that number today. Please check it, or ask reception for help.";
 const LOCKED = "Too many tries on this screen. Please ask reception for help.";
@@ -22,6 +23,8 @@ function AppointmentCheckIn() {
   const [phone, setPhone] = useState("");
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [done, setDone] = useState<Done | null>(null);
+  // Set when a published visitor form must be answered before the visit is created.
+  const [formStep, setFormStep] = useState<{ appointmentId: Id<"appointments">; form: AppointmentForm } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -42,14 +45,47 @@ function AppointmentCheckIn() {
     }
   }
 
+  function reset(message: string | null = null) {
+    setFormStep(null);
+    setMatches(null);
+    setPhone("");
+    setError(message);
+  }
+
+  /**
+   * "Yes, that is me". When a visitor form is published for this site the
+   * server hands it out (after re-checking the phone) and the visit is created
+   * only once it is answered; with no form this is the direct check-in.
+   */
   async function confirm(match: Match) {
     setError(null);
     setBusy(true);
     try {
+      const step = await kiosk.mutation(api.kioskForms.formForAppointment, {
+        appointmentId: match.appointmentId,
+        phone: phone.trim(),
+      });
+      if (step.status === "form") {
+        setFormStep({
+          appointmentId: match.appointmentId,
+          form: { versionId: step.versionId, name: step.name, fields: step.fields, prefilledFieldIds: step.prefilledFieldIds },
+        });
+        return;
+      }
+      if (step.status !== "no_form") {
+        setError(step.status === "locked" ? LOCKED : NO_MATCH);
+        setMatches(null);
+        return;
+      }
       const res = await kiosk.mutation(api.kioskVisitor.checkInAppointment, {
         appointmentId: match.appointmentId,
         phone: phone.trim(),
       });
+      if (res.status === "form_required") {
+        // A form was published a moment ago: go round again so the visitor sees it.
+        setError("Please confirm again to continue.");
+        return;
+      }
       if (res.status === "ok") {
         setDone({ firstName: res.firstName, hostName: res.hostName, badgeCode: res.badgeCode });
         setPhone("");
@@ -75,6 +111,24 @@ function AppointmentCheckIn() {
         </p>
         <p className="text-base text-muted-foreground">Keep this code. You will need it, with your phone number, to sign out.</p>
       </KioskDone>
+    );
+  }
+
+  if (formStep) {
+    return (
+      <AppointmentFormStep
+        appointmentId={formStep.appointmentId}
+        phone={phone}
+        form={formStep.form}
+        onDone={(d) => {
+          setDone(d);
+          setFormStep(null);
+          setMatches(null);
+          setPhone("");
+        }}
+        onCancel={() => reset()}
+        onNoMatch={(message) => reset(message)}
+      />
     );
   }
 

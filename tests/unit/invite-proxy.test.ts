@@ -2,6 +2,7 @@ import { ConvexError } from "convex/values";
 import { describe, expect, test, vi } from "vitest";
 import { MAX_BODY_BYTES, proxyInvite, type InviteAction } from "../../lib/server/invite-proxy";
 
+type Call = (action: InviteAction, args: Record<string, unknown>) => Promise<unknown>;
 const SECRET = "proxy-secret-0123456789abcdef";
 const headers = (h: Record<string, string> = {}) => ({ get: (n: string) => h[n.toLowerCase()] ?? null });
 const run = (
@@ -14,7 +15,7 @@ const run = (
 
 describe("invite proxy", () => {
   test("passes the secret and a keyed IP hash to Convex, never the raw address", async () => {
-    const call = vi.fn(async (_a: InviteAction, _args: Record<string, unknown>) => ({ status: "ok" }));
+    const call = vi.fn<Call>(async () => ({ status: "ok" }));
     const res = await run("lookup", { token: "wi_x" }, { "x-real-ip": "203.0.113.9" }, { secret: SECRET }, call);
     expect(res).toEqual({ status: 200, body: { ok: true, data: { status: "ok" } } });
     const [action, args] = call.mock.calls[0]!;
@@ -38,7 +39,7 @@ describe("invite proxy", () => {
   });
 
   test("callers cannot supply their own secret or IP hash", async () => {
-    const call = vi.fn(async (_a: InviteAction, _args: Record<string, unknown>) => null);
+    const call = vi.fn<Call>(async () => null);
     await run("submit", { token: "t", proxySecret: "mine", ipHash: "f".repeat(64) }, { "x-real-ip": "203.0.113.9" }, { secret: SECRET }, call);
     const args = call.mock.calls[0]![1];
     expect(args.proxySecret).toBe(SECRET);
@@ -55,7 +56,7 @@ describe("invite proxy", () => {
   });
 
   test("the development flag allows calls without a secret and sends no secret", async () => {
-    const call = vi.fn(async (_a: InviteAction, _args: Record<string, unknown>) => ({ ok: 1 }));
+    const call = vi.fn<Call>(async () => ({ ok: 1 }));
     const res = await run("lookup", { token: "t" }, {}, { allowUnproxied: true }, call);
     expect(res.status).toBe(200);
     expect(call.mock.calls[0]![1]).toMatchObject({ proxySecret: "", ipHash: "dev" });

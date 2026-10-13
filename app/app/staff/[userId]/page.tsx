@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { CorrectionForm } from "@/components/attendance/correction-form";
 import { CorrectionList, DayList, EventList, useRange } from "@/components/attendance/history";
 import { Field } from "@/components/forms/field";
+import { ResponseCards, type ResponseView } from "@/components/forms-builder/visit-responses";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,29 @@ function KioskAccess({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Answers this person gave to staff forms (for example a daily declaration at
+ * clock-in). Sensitive answers stay hidden until revealed, which is logged.
+ */
+function FormAnswers({ userId }: { userId: Id<"users"> }) {
+  const { organizationId } = useActiveOrg();
+  const responses = useQuery(api.forms.staffResponses, { organizationId, userId });
+  return (
+    <section className="space-y-3">
+      <h2 className="text-lg font-semibold">Form answers</h2>
+      {responses === undefined ? (
+        <Skeleton className="h-24 w-full" />
+      ) : responses.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No staff form answers yet. They appear here when a staff form is published and this person clocks in.
+        </p>
+      ) : (
+        <ResponseCards responses={responses as ResponseView[]} />
+      )}
+    </section>
   );
 }
 
@@ -192,6 +216,7 @@ export default function StaffPersonPage() {
         <h2 className="text-lg font-semibold">Correction requests</h2>
         <CorrectionList corrections={data.corrections} />
       </section>
+      <FormAnswers userId={person.userId} />
     </>
   );
 }

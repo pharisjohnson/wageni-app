@@ -216,7 +216,7 @@ describe("stale counters", () => {
 
   test("is registered in the cron table", async () => {
     const crons = (await import("../../convex/crons")).default;
-    expect(JSON.stringify(crons.export())).toContain("sweepStale");
+    expect(Object.keys(crons.crons)).toContain("stale rate limit sweep");
   });
 });
 

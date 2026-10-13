@@ -88,8 +88,11 @@ function InviteForm({ siteId }: { siteId: Id<"sites"> }) {
         scheduledStart,
         scheduledEnd: scheduledStart + Number(v.durationMinutes) * 60_000,
         formId: (v.formId || undefined) as Id<"forms"> | undefined,
+        // The server validates this origin; APP_BASE_URL, when set there, takes precedence.
+        origin: window.location.origin,
       });
-      setLink(`${window.location.origin}${res.path}`);
+      // `url` is absolute when the server trusted an origin; otherwise fall back to this browser's.
+      setLink(res.url.startsWith("/") ? `${window.location.origin}${res.path}` : res.url);
       form.reset();
     } catch (e) {
       toast.error(errorMessage(e));

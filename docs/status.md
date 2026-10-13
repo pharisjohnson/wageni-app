@@ -73,7 +73,7 @@ Not done: voiding an entry without a replacement, exports and reports of hours (
 | One `NotificationChannel` interface (`lib/notifications/channels.ts`); dry-run adapter is the default and records instead of sending; thin `fetch` adapters for Resend-style email, Africa's Talking SMS and WhatsApp Cloud API, chosen by env vars | Done; real adapters never exercised (no credentials), unit-tested against mocked `fetch` only |
 | Tables `notificationOutbox`, `notificationPreferences`, `notificationSettings`, `notificationUsage`; idempotency keys, per-org hourly limit (300), quiet hours, retries after 1/5/30 min then `failed` | Done |
 | Triggers: host on arrival (kiosk, guard admit, walk-in admitted at once), walk-in waiting, appointment requested/approved/declined/cancelled/rescheduled, reminder 1h before, missed clock-out, stale corrections alert, `notifications.onInvitationCreated` for F1 | Done |
-| Crons: reminders (15 min), staff scan (30 min), outbox retry (10 min), outbox purge (daily, 90 days). P1's retention sweep is registered (daily 01:00 UTC); F1 file cleanup is still commented in `convex/crons.ts` until that function exists | Done |
+| Crons: reminders (15 min), staff scan (30 min), outbox retry (10 min), outbox purge (daily, 90 days). P1's retention sweep is registered (daily 01:00 UTC); F1 file cleanup, the F2 upload sweep and the F2 stale rate-limit sweep are registered too | Done |
 | Webhook `POST /webhooks/notifications` (HMAC, constant-time, 5 min replay window, generic 4xx) | Done |
 | UI: `/app/messages` (stats, filters, retry), `/app/messages/settings` (channels, sender, wording), `/app/integrations` (mode per channel, test-send), notification preferences card on `/app/attendance` | Done; not exercised in a browser |
 | New permission `messages:read` (owner, admin, receptionist); settings, retry and test-send use `integrations:manage` | Done |
@@ -81,7 +81,7 @@ Not done: voiding an entry without a replacement, exports and reports of hours (
 
 Not done: Swahili text (structure ready), provider-specific webhook adapters (Resend, Africa's Talking and Meta sign differently, so a relay or per-provider mapping is needed), SMS/WhatsApp to staff needs a phone each member enters themselves, per-recipient rate limits, visitor opt-out.
 
-Integration notes. F1: call `ctx.scheduler.runAfter(0, internal.notifications.onInvitationCreated, { organizationId, siteId?, invitee: { name?, email?, phone? }, link, idempotencyKey })`. F1: uncomment the file cleanup line in `convex/crons.ts` once `internal.files.purgeExpired` exists. The outbox holds addresses and first names for at most 90 days (`notificationsCron.purgeOld`); P1's `retention.purgeExpired` also deletes settled rows older than the organization's visitor-record period, so the effective window is the shorter of 90 days and that setting.
+Integration notes. F1: call `ctx.scheduler.runAfter(0, internal.notifications.onInvitationCreated, { organizationId, siteId?, invitee: { name?, email?, phone? }, link, idempotencyKey })`. The outbox holds addresses and first names for at most 90 days (`notificationsCron.purgeOld`); P1's `retention.purgeExpired` also deletes settled rows older than the organization's visitor-record period, so the effective window is the shorter of 90 days and that setting.
 
 ## Reports, audit and retention, Phase 5 (P1)
 
@@ -117,7 +117,24 @@ Retention behaviour: visits are anonymised, never deleted (badge code cleared; t
 | Invitation delivery: scheduled `internal.notifications.onInvitationCreated` (N1). Set `APP_BASE_URL` in Convex for absolute links | Done |
 | Tests: `tests/unit/forms.test.ts`, `tests/convex/forms.test.ts`, `tests/convex/invitations.test.ts` | Passing |
 
-Not done / follow-ups: form on appointment check-in at the kiosk; staff-audience form submission (schema and builder support it, no submit path); per-field `retentionDays` is enforced for files only (text answers follow organization retention); orphan blobs from uploads that were never registered are not swept; stored file type is the client-declared content type (mutations cannot read bytes); browser verification of builder, camera, signature and invite page.
+Not done / follow-ups: browser verification of builder, camera, signature and invite page. (The five F1 gaps are closed in F2, below.)
+
+## Forms, uploads and invitations, follow-up (F2)
+
+| Area | Status |
+| --- | --- |
+| Kiosk appointment check-in shows the published visitor form after the phone match and before the visit exists (`kioskForms.formForAppointment`, `checkInAppointmentWithForm`); `checkInAppointment` returns `form_required` while a form applies; known name/phone/email/company/purpose filled server side; skipped when already answered via the invitation; responses on the visit detail | Done |
+| Staff forms: published per site, asked at clock-in at the kiosk (after PIN, no PIN rule changed) and on `/app/attendance`; stored with person, site and clock-in event; managers read them on `/app/staff/[userId]` with sensitive answers withheld; builder labels staff forms, hides visit mapping and file types, publish rules enforce it | Done; not exercised in a browser |
+| Per-field answer retention for all answers: `formRetention.redactExpired` (tombstones, bounded batches, dry run, counts-only audit, org minimums enforced), run from the daily `retention.sweepAll` | Done |
+| Upload sweep: `uploadIntents`, `files.sweepOrphans` every 30 minutes (expired intents, unclaimed pending files, never-registered blobs via a watermark scan) | Done |
+| Content verification: `filesVerify.verify` action checks magic bytes, type and size; files `verified` or deleted and flagged `rejected`; `forms.openFile` needs `verified` | Done; the action is tested with `convex-test` against stored blobs, not against a real Convex deployment |
+| Per-IP limits on the invite page via `app/api/invite/[action]` with `INVITE_PROXY_SECRET` and hashed IP; direct Convex calls refused; fails closed; dev flag | Done; trust in the platform's IP headers is an assumption (see security.md) |
+| Absolute invitation links: validated browser origin, `APP_BASE_URL` wins | Done |
+| Tests: `tests/convex/{kioskAppointmentForm,staffForms,formRetention,uploads,inviteProxy}.test.ts`, `tests/unit/{f2-lib,invite-proxy}.test.ts` | Passing |
+
+Operational notes: set `INVITE_PROXY_SECRET` (Next env and Convex, same value) and `APP_BASE_URL` (Convex); see `docs/setup.md`. Files stored before F2 have no verification status and cannot be opened until `npx convex run filesVerify:requeueLegacy` has queued them (repeat while it returns 200). Existing form responses are picked up by the redaction job on its first run.
+
+Still limited: per-IP limiting covers the invitation functions only (kiosk calls are per device); staff forms cannot hold files and clock-ins recorded on someone's behalf skip the form; verification does not validate that a file is well formed; none of the new browser screens (appointment form step, staff form at the kiosk and on Attendance, staff answers on the person page, invite page through the proxy) has been exercised in a browser; the Convex action and scheduler paths have only run under `convex-test`.
 
 ## Needs your credentials
 

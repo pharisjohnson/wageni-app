@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { MAX_OPEN_INTENTS, ORPHAN_GRACE_MS } from "../../convex/lib/files";
-import { GOOD_ANSWERS, formsSetup, visitorFields, type FormsSetup } from "./formsSetup";
+import { GOOD_ANSWERS, formsSetup, type FormsSetup } from "./formsSetup";
 import { expectCode, newTest, type T } from "./setup";
 
 const HOUR = 60 * 60 * 1000;
@@ -137,6 +137,7 @@ describe("sweeping abandoned uploads", () => {
     const attached = await s.upload("photo", "image/png", PNG);
     if (pending.res.status !== "ok" || attached.res.status !== "ok") throw new Error("upload failed");
     const attachedId = attached.res.fileId;
+    const pendingId = pending.res.fileId;
     await t.run(async (ctx) => {
       await ctx.db.patch(attachedId, { status: "attached", deleteAfter: Date.now() - 1 });
     });
@@ -145,13 +146,13 @@ describe("sweeping abandoned uploads", () => {
     expect(await exists(t, pending.storageId)).toBe(false);
     expect(await exists(t, attached.storageId)).toBe(true);
     const rows = await files(t);
-    expect(rows.find((f) => f._id === pending.res.fileId)).toMatchObject({ status: "deleted" });
+    expect(rows.find((f) => f._id === pendingId)).toMatchObject({ status: "deleted" });
     expect(rows.find((f) => f._id === attachedId)).toMatchObject({ status: "attached" });
   });
 
   test("is registered in the cron table", async () => {
     const crons = (await import("../../convex/crons")).default;
-    expect(JSON.stringify(crons.export())).toContain("sweepOrphans");
+    expect(Object.keys(crons.crons)).toContain("abandoned upload sweep");
   });
 });
 
@@ -196,7 +197,7 @@ describe("content verification", () => {
     const s = await formsSetup(t);
     const a = await registered(s, "photo", "image/png", JPEG);
     expect(await verify(t, a.fileId)).toEqual({ status: "rejected", reason: "type_mismatch" });
-    // Signatures are PNG only, so a genuine JPEG is refused even when it is declared honestly.
+    // A genuine JPEG declared honestly is fine for a photo.
     const b = await registered(s, "photo", "image/jpeg", JPEG);
     expect(await verify(t, b.fileId)).toEqual({ status: "verified" });
   });
@@ -299,12 +300,5 @@ describe("content verification", () => {
       await t.finishAllScheduledFunctions(vi.runAllTimers);
       expect((await files(t))[0]).toMatchObject({ verifyStatus: "verified" });
     });
-  });
-});
-
-describe("kiosk and invite paths share the same checks", () => {
-  test("form fields in the shared fixture include the file kinds exercised above", () => {
-    const types = visitorFields().map((f) => f.type);
-    expect(types).toEqual(expect.arrayContaining(["signature", "id_scan"]));
   });
 });

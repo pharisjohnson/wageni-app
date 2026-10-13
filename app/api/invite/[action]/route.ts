@@ -13,8 +13,7 @@ import { proxyInvite, type InviteAction } from "@/lib/server/invite-proxy";
  * CLIENT_IP_HEADER pointed at a header their proxy controls.
  */
 
-// Reads request headers and bodies: never cache.
-export const dynamic = "force-dynamic";
+// A POST handler is never cached (and `dynamic` route config is not allowed with cacheComponents).
 
 function client() {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;

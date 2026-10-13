@@ -10,14 +10,21 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { errorMessage } from "@/lib/auth/errors";
 import { useActiveOrg } from "@/lib/org/active-org";
 
-type Revealed = { id: string; label: string; value?: string; file?: { fileId: Id<"files">; deleted: boolean } };
+type FileState = { fileId: Id<"files">; deleted: boolean; rejected: boolean; verified: boolean };
+type Revealed = { id: string; label: string; value?: string; file?: FileState };
 
 /** Opens one stored file in a new tab through an audited, permission-checked URL. */
-function OpenFile({ fileId, deleted, label }: { fileId: Id<"files">; deleted: boolean; label: string }) {
+function OpenFile({ file, label }: { file: FileState; label: string }) {
   const { organizationId } = useActiveOrg();
   const openFile = useMutation(api.forms.openFile);
   const [busy, setBusy] = useState(false);
-  if (deleted) return <span className="text-muted-foreground">Removed (retention period ended)</span>;
+  const { fileId } = file;
+  if (file.rejected) {
+    return <span className="text-destructive">Removed: the file did not pass the content check</span>;
+  }
+  if (file.deleted) return <span className="text-muted-foreground">Removed (retention period ended)</span>;
+  // Files cannot be opened until their bytes were checked against the declared type.
+  if (!file.verified) return <span className="text-muted-foreground">Being checked. Try again in a moment.</span>;
   return (
     <Button
       size="sm"
@@ -40,6 +47,20 @@ function OpenFile({ fileId, deleted, label }: { fileId: Id<"files">; deleted: bo
   );
 }
 
+/** One answered form as returned by `forms.visitResponses` or `forms.staffResponses`. */
+export type ResponseView = {
+  responseId: Id<"formResponses">;
+  formName: string;
+  version: number;
+  createdAt: number;
+  canRevealSensitive: boolean;
+  items: (
+    | { id: string; label: string; sensitive: true }
+    | { id: string; label: string; sensitive: false; value: string }
+    | { id: string; label: string; sensitive: false; file: FileState }
+  )[];
+};
+
 /**
  * Form answers for a visit. Sensitive answers are never in the query result:
  * a person with `forms:read_sensitive` can reveal them, which is audited.
@@ -47,10 +68,15 @@ function OpenFile({ fileId, deleted, label }: { fileId: Id<"files">; deleted: bo
 export function VisitResponses({ visitId }: { visitId: Id<"visits"> }) {
   const { organizationId } = useActiveOrg();
   const responses = useQuery(api.forms.visitResponses, { organizationId, visitId });
+  if (!responses || responses.length === 0) return null;
+  return <ResponseCards responses={responses as ResponseView[]} />;
+}
+
+/** The cards for a list of responses; shared by visits and staff pages. */
+export function ResponseCards({ responses }: { responses: ResponseView[] }) {
+  const { organizationId } = useActiveOrg();
   const reveal = useMutation(api.forms.revealSensitive);
   const [revealed, setRevealed] = useState<Record<string, Revealed[]>>({});
-
-  if (!responses || responses.length === 0) return null;
   return (
     <>
       {responses.map((r) => {
@@ -74,7 +100,7 @@ export function VisitResponses({ visitId }: { visitId: Id<"visits"> }) {
                         {item.sensitive ? (
                           shown ? (
                             shown.file ? (
-                              <OpenFile fileId={shown.file.fileId} deleted={shown.file.deleted} label={item.label} />
+                              <OpenFile file={shown.file} label={item.label} />
                             ) : (
                               shown.value
                             )
@@ -82,7 +108,7 @@ export function VisitResponses({ visitId }: { visitId: Id<"visits"> }) {
                             <span className="text-muted-foreground">Hidden (sensitive)</span>
                           )
                         ) : "file" in item && item.file ? (
-                          <OpenFile fileId={item.file.fileId} deleted={item.file.deleted} label={item.label} />
+                          <OpenFile file={item.file} label={item.label} />
                         ) : (
                           "value" in item && item.value
                         )}

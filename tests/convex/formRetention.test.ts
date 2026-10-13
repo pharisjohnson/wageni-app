@@ -220,7 +220,7 @@ describe("batching", () => {
   test("each run handles at most one batch and schedules the next while rows remain", async () => {
     const t = newTest();
     const s = await setup(t);
-    const ids = [];
+    const ids: Id<"formResponses">[] = [];
     for (let i = 0; i < 5; i++) ids.push(await addResponse(t, s, 60 + i, { temp: "t" }));
     const first = await redact(t, s, { batchSize: 2 });
     expect(first).toMatchObject({ hasMore: true, counts: { responses: 2, answers: 2 } });
