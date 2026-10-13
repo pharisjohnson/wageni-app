@@ -87,3 +87,11 @@ export const vCorrectionStatus = v.union(
   v.literal("rejected"),
 );
 // --- end A1
+
+// --- P1: retention periods (days)
+export const vRetention = v.object({
+  visitRecordsDays: v.number(),
+  auditLogDays: v.number(),
+  attendanceDays: v.number(),
+});
+// --- end P1

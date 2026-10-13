@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import type { z } from "zod";
 import { Field } from "@/components/forms/field";
+import { RetentionSettings } from "@/components/reports/retention-form"; // P1
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,6 +87,9 @@ export default function SettingsPage() {
           </form>
         </CardContent>
       </Card>
+      {/* P1: data retention */}
+      <RetentionSettings />
+      {/* end P1 */}
     </>
   );
 }
