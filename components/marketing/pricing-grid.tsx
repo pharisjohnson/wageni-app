@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { PLANS } from "@/lib/plans";
+import { BUSINESS_TRIAL_LABEL, PLANS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 export function PricingGrid() {
@@ -30,7 +30,7 @@ export function PricingGrid() {
               href="/sign-up"
               className={buttonVariants({ variant: plan.highlighted ? "default" : "outline", className: "w-full" })}
             >
-              Start free trial
+              {plan.tier === "free" ? "Get started free" : plan.tier === "business" ? `Start: ${BUSINESS_TRIAL_LABEL.toLowerCase()}` : "Get started, then contact us"}
             </Link>
           </CardFooter>
         </Card>

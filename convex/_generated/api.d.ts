@@ -13,6 +13,8 @@
 import type * as attendance from "../attendance.js";
 import type * as attendancePins from "../attendancePins.js";
 import type * as audit from "../audit.js";
+import type * as billing from "../billing.js";
+import type * as billingWebhook from "../billingWebhook.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as files from "../files.js";
@@ -31,6 +33,7 @@ import type * as kioskVisitor from "../kioskVisitor.js";
 import type * as lib_attendance from "../lib/attendance.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_entitlements from "../lib/entitlements.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_files from "../lib/files.js";
 import type * as lib_formResponses from "../lib/formResponses.js";
@@ -48,6 +51,7 @@ import type * as lib_reportExport from "../lib/reportExport.js";
 import type * as lib_reports from "../lib/reports.js";
 import type * as lib_retentionCron from "../lib/retentionCron.js";
 import type * as lib_time from "../lib/time.js";
+import type * as lib_usage from "../lib/usage.js";
 import type * as lib_validate from "../lib/validate.js";
 import type * as lib_visitors from "../lib/visitors.js";
 import type * as lib_visits from "../lib/visits.js";
@@ -81,6 +85,8 @@ import type * as visits from "../visits.js";
 "attendance": typeof attendance,
 "attendancePins": typeof attendancePins,
 "audit": typeof audit,
+"billing": typeof billing,
+"billingWebhook": typeof billingWebhook,
 "crons": typeof crons,
 "dashboard": typeof dashboard,
 "files": typeof files,
@@ -99,6 +105,7 @@ import type * as visits from "../visits.js";
 "lib/attendance": typeof lib_attendance,
 "lib/audit": typeof lib_audit,
 "lib/auth": typeof lib_auth,
+"lib/entitlements": typeof lib_entitlements,
 "lib/errors": typeof lib_errors,
 "lib/files": typeof lib_files,
 "lib/formResponses": typeof lib_formResponses,
@@ -116,6 +123,7 @@ import type * as visits from "../visits.js";
 "lib/reports": typeof lib_reports,
 "lib/retentionCron": typeof lib_retentionCron,
 "lib/time": typeof lib_time,
+"lib/usage": typeof lib_usage,
 "lib/validate": typeof lib_validate,
 "lib/visitors": typeof lib_visitors,
 "lib/visits": typeof lib_visits,

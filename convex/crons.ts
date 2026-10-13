@@ -25,6 +25,10 @@ crons.interval("abandoned upload sweep", { minutes: 30 }, internal.files.sweepOr
 crons.daily("stale rate limit sweep", { hourUTC: 3, minuteUTC: 0 }, internal.publicLimits.sweepStale, {});
 // --- end F2
 
+// --- B1: forget processed billing webhook ids after their TTL
+crons.daily("billing webhook id sweep", { hourUTC: 3, minuteUTC: 30 }, internal.billingWebhook.sweepProcessed, {});
+// --- end B1
+
 // --- Wiring notes (see docs/architecture.md, "Scheduled jobs").
 // P1 and F1 own these functions. They are NOT registered yet because the
 // functions are not on this branch (a cron naming a missing function fails

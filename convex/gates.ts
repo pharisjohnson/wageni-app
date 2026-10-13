@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { gateSchema } from "../lib/validation/organization";
 import { requireSite } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
+import { assertSiteEditable, requireWithinLimit } from "./lib/entitlements";
 import { appError } from "./lib/errors";
 import { orgMutation, orgQuery } from "./lib/functions";
 import { parseOrThrow } from "./lib/validate";
@@ -26,6 +27,7 @@ export const create = orgMutation({
   handler: async (ctx, { siteId, ...rest }) => {
     ctx.require("sites:manage");
     await requireSite(ctx, ctx.oc, siteId);
+    await requireWithinLimit(ctx, "gates");
     const input = parseOrThrow(gateSchema, rest);
     const existing = await ctx.db
       .query("gates")
@@ -63,6 +65,7 @@ export const update = orgMutation({
     const gate = await ctx.db.get(gateId);
     if (!gate || gate.organizationId !== ctx.oc.org._id) throw appError("NOT_FOUND");
     await requireSite(ctx, ctx.oc, gate.siteId);
+    await assertSiteEditable(ctx, gate.siteId, { archiving: status !== "active" });
     const input = parseOrThrow(gateSchema, rest);
     await ctx.db.patch(gateId, { ...input, status, updatedAt: Date.now() });
     await writeAudit(ctx, {

@@ -170,3 +170,19 @@ export const vNotificationStatus = v.union(
   v.literal("skipped"),
 );
 // --- end N1
+
+// --- B1: billing
+export const vSubscriptionStatus = v.union(
+  v.literal("active"),
+  v.literal("trialing"),
+  v.literal("past_due"),
+  v.literal("canceled"),
+  v.literal("ended"),
+);
+export const vUsageKey = v.union(
+  v.literal("visits"),
+  v.literal("notifications"),
+  v.literal("files"),
+  v.literal("fileBytes"),
+);
+// --- end B1

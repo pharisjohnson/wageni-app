@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
 import { starterFields } from "@/components/forms-builder/builder-utils";
 import { Field } from "@/components/forms/field";
 import { PageHeader } from "@/components/layout/page-header";
@@ -17,7 +16,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { errorMessage } from "@/lib/auth/errors";
+import { toastError } from "@/components/billing/plan-toast";
 import { useActiveOrg } from "@/lib/org/active-org";
 
 type NewForm = { name: string; audience: "visitor" | "staff"; purpose: string; siteId: string };
@@ -43,7 +42,7 @@ function CreateForm({ onDone }: { onDone: () => void }) {
       });
       router.push(`/app/forms/${formId}`);
     } catch (e) {
-      toast.error(errorMessage(e));
+      toastError(e);
     }
   });
 

@@ -28,6 +28,8 @@ import {
   vRetention,
   vChannel,
   vNotificationStatus,
+  vSubscriptionStatus,
+  vUsageKey,
 } from "./validators";
 
 /**
@@ -490,4 +492,45 @@ export default defineSchema({
     count: v.number(),
   }).index("by_org", ["organizationId"]),
   // --- end N1
+
+  // --- B1: billing (Clerk Billing for users; an organization's plan is its owner's plan)
+  // One row per Clerk subscription item. Holds no personal data: only the Clerk
+  // user id (needed to find the owner) and plan facts.
+  subscriptions: defineTable({
+    clerkUserId: v.string(),
+    clerkItemId: v.string(),
+    planSlug: v.string(),
+    featureSlugs: v.optional(v.array(v.string())),
+    status: vSubscriptionStatus,
+    isFreeTrial: v.boolean(),
+    trialEndsAt: v.optional(v.number()),
+    currentPeriodEnd: v.optional(v.number()),
+    pastDueAt: v.optional(v.number()),
+    canceledAt: v.optional(v.number()),
+    lastEventId: v.string(),
+    // Provider timestamp of the last applied event; older events are ignored.
+    lastEventAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_clerk_user", ["clerkUserId"])
+    .index("by_item", ["clerkItemId"]),
+
+  // Processed webhook delivery ids (Svix `svix-id`) for idempotency. Swept by cron.
+  processedWebhooks: defineTable({
+    eventId: v.string(),
+    processedAt: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_processed", ["processedAt"]),
+
+  // Monthly counters bumped by the mutation paths (never by scanning).
+  usageCounters: defineTable({
+    organizationId: v.id("organizations"),
+    period: v.string(), // "YYYY-MM" (UTC)
+    key: vUsageKey,
+    value: v.number(),
+  })
+    .index("by_org_period_key", ["organizationId", "period", "key"])
+    .index("by_period", ["period"]),
+  // --- end B1
 });

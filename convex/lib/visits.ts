@@ -2,6 +2,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { writeAudit } from "./audit";
+import { bumpUsage } from "./usage";
 
 /**
  * Visit lifecycle logic shared by the signed-in paths (convex/visits.ts) and
@@ -82,6 +83,7 @@ export async function admitAppointment(
     createdAt: now,
     updatedAt: now,
   });
+  await bumpUsage(ctx, appt.organizationId, "visits");
   await ctx.db.patch(appt._id, { status: "checked_in", updatedAt: now });
   await addVisitEvent(
     ctx,
@@ -137,6 +139,7 @@ export async function registerVisit(
     createdAt: now,
     updatedAt: now,
   });
+  await bumpUsage(ctx, input.organizationId, "visits");
   const ref = { _id: visitId, organizationId: input.organizationId, siteId: input.siteId };
   await addVisitEvent(ctx, ref, "registered", actor, input.originGateId);
   if (admitGateId) await addVisitEvent(ctx, ref, "checked_in", actor, admitGateId);

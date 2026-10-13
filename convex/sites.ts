@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { siteSchema } from "../lib/validation/organization";
 import { hasSiteAccess, requireSite } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
+import { assertSiteEditable, requireWithinLimit } from "./lib/entitlements";
 import { orgMutation, orgQuery } from "./lib/functions";
 import { parseOrThrow } from "./lib/validate";
 import { vRecordStatus } from "./validators";
@@ -35,6 +36,7 @@ export const create = orgMutation({
   handler: async (ctx, args) => {
     ctx.require("sites:manage");
     const input = parseOrThrow(siteSchema, args);
+    await requireWithinLimit(ctx, "sites");
     const now = Date.now();
     const siteId = await ctx.db.insert("sites", {
       organizationId: ctx.oc.org._id,
@@ -75,6 +77,8 @@ export const update = orgMutation({
   handler: async (ctx, { siteId, status, ...rest }) => {
     ctx.require("sites:manage");
     await requireSite(ctx, ctx.oc, siteId);
+    // Sites beyond the plan limit are view-only (archiving is still allowed).
+    await assertSiteEditable(ctx, siteId, { archiving: status !== "active" });
     const input = parseOrThrow(siteSchema, rest);
     await ctx.db.patch(siteId, {
       name: input.name,

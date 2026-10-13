@@ -11,6 +11,7 @@ import {
   retentionSchema,
 } from "../lib/retention";
 import { writeAudit } from "./lib/audit";
+import { getOrgEntitlements, hasFeature, requireFeature } from "./lib/entitlements";
 import { orgMutation, orgQuery } from "./lib/functions";
 import { parseOrThrow } from "./lib/validate";
 import { vRetention } from "./validators";
@@ -159,7 +160,9 @@ export const get = orgQuery({
   args: {},
   handler: async (ctx) => {
     ctx.require("settings:manage");
+    const ent = await getOrgEntitlements(ctx, ctx.oc.org._id);
     return {
+      canCustomize: hasFeature(ent, "custom_retention"),
       retention: resolveRetention(ctx.oc.org.retention),
       defaults: DEFAULT_RETENTION,
       minimums: MIN_RETENTION,
@@ -183,6 +186,14 @@ export const update = orgMutation({
   handler: async (ctx, { retention }) => {
     ctx.require("settings:manage");
     const parsed = parseOrThrow(retentionSchema, retention);
+    // Only plans with `custom_retention` may move off the defaults. Saving the
+    // defaults (or what is already stored) is always allowed.
+    const next = resolveRetention(parsed);
+    const current = resolveRetention(ctx.oc.org.retention);
+    const changes = (Object.keys(next) as (keyof typeof next)[]).some(
+      (k) => next[k] !== DEFAULT_RETENTION[k] && next[k] !== current[k],
+    );
+    if (changes) await requireFeature(ctx, "custom_retention");
     await ctx.db.patch(ctx.oc.org._id, { retention: parsed, updatedAt: Date.now() });
     await writeAudit(ctx, {
       organizationId: ctx.oc.org._id,

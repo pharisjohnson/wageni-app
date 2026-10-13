@@ -10,8 +10,8 @@ export default function PricingPage() {
         <div className="space-y-3 text-center">
           <h1 className="font-display text-4xl font-extrabold tracking-tight sm:text-5xl">Pricing</h1>
           <p className="mx-auto max-w-prose text-muted-foreground">
-            Every plan starts with a free trial. Final pricing is being set; contact us for multi-site and
-            enterprise requirements.
+            Starter is free. Business starts with a free trial. USD prices are being finalised and are charged by
+            card through Stripe; contact us for enterprise requirements.
           </p>
         </div>
         <PricingGrid />
