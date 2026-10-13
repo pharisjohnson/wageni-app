@@ -1,3 +1,4 @@
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { writeAudit } from "./audit";
@@ -97,6 +98,7 @@ export async function admitAppointment(
     resourceId: visitId,
     metadata: "kioskDeviceId" in actor ? { origin: "kiosk", gateId } : undefined,
   });
+  await ctx.scheduler.runAfter(0, internal.notifications.onVisitArrived, { visitId }); // N1
   return { visitId, badgeCode };
 }
 
@@ -146,6 +148,7 @@ export async function registerVisit(
     resourceId: visitId,
     metadata: input.originGateId ? { origin: "kiosk", gateId: input.originGateId } : undefined,
   });
+  await ctx.scheduler.runAfter(0, internal.notifications.onVisitArrived, { visitId }); // N1
   return visitId;
 }
 

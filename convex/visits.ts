@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { walkInPurposeSchema } from "../lib/validation/visits";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { hasSiteAccess, requireSite } from "./lib/auth";
@@ -239,6 +240,7 @@ export const admit = orgMutation({
       resourceType: "visit",
       resourceId: visitId,
     });
+    await ctx.scheduler.runAfter(0, internal.notifications.onVisitArrived, { visitId }); // N1
   },
 });
 
