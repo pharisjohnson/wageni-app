@@ -32,6 +32,9 @@ export const PERMISSIONS = [
   "sites:read",
   "sites:manage",
   "integrations:manage",
+  // --- N1: notification history and delivery stats (settings, retry and test-send use integrations:manage)
+  "messages:read",
+  // --- end N1
   "billing:manage",
   "settings:manage",
 ] as const;

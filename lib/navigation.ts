@@ -47,7 +47,7 @@ export const APP_NAV: NavItem[] = [
     href: "/app/messages",
     label: "Messages",
     icon: MessageSquare,
-    anyOf: ["appointments:create", "appointments:approve"],
+    anyOf: ["messages:read"],
   },
   { href: "/app/integrations", label: "Integrations", icon: Plug, anyOf: ["integrations:manage"] },
   { href: "/app/settings", label: "Settings", icon: Settings, anyOf: ["settings:manage"] },

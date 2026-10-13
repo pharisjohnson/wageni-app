@@ -49,7 +49,7 @@
 | `visitEvents`/`auditLogs` accept a kiosk device as actor (`kioskDeviceId`); shared lifecycle logic in `convex/lib/visits.ts` | Done |
 | `useKioskApi` (NOT_FOUND unpairs the device) + gate verifies token on mount | Done |
 | Convex tests (`tests/convex/kioskVisitor.test.ts`), unit tests (`tests/unit/time.test.ts`) | Passing |
-| Booking codes, host notification on arrival (N1), forms (F1) | Not started |
+| Booking codes, forms (F1) | Not started (host notification on arrival: done, N1) |
 | Browser verification of kiosk screens (needs Convex + Clerk + a paired device) | Not done |
 
 ## Staff attendance, Phase 3 (A1)
@@ -66,6 +66,23 @@
 
 Not done: voiding an entry without a replacement, exports and reports of hours (Phase 5), manager notifications.
 
+## Notifications, crons and webhooks, Phase 6 (N1)
+
+| Area | Status |
+| --- | --- |
+| One `NotificationChannel` interface (`lib/notifications/channels.ts`); dry-run adapter is the default and records instead of sending; thin `fetch` adapters for Resend-style email, Africa's Talking SMS and WhatsApp Cloud API, chosen by env vars | Done; real adapters never exercised (no credentials), unit-tested against mocked `fetch` only |
+| Tables `notificationOutbox`, `notificationPreferences`, `notificationSettings`, `notificationUsage`; idempotency keys, per-org hourly limit (300), quiet hours, retries after 1/5/30 min then `failed` | Done |
+| Triggers: host on arrival (kiosk, guard admit, walk-in admitted at once), walk-in waiting, appointment requested/approved/declined/cancelled/rescheduled, reminder 1h before, missed clock-out, stale corrections alert, `notifications.onInvitationCreated` for F1 | Done |
+| Crons: reminders (15 min), staff scan (30 min), outbox retry (10 min), outbox purge (daily, 90 days). `retention.purgeExpired` (P1) and F1 file cleanup are commented in `convex/crons.ts` until those functions exist | Done |
+| Webhook `POST /webhooks/notifications` (HMAC, constant-time, 5 min replay window, generic 4xx) | Done |
+| UI: `/app/messages` (stats, filters, retry), `/app/messages/settings` (channels, sender, wording), `/app/integrations` (mode per channel, test-send), notification preferences card on `/app/attendance` | Done; not exercised in a browser |
+| New permission `messages:read` (owner, admin, receptionist); settings, retry and test-send use `integrations:manage` | Done |
+| Tests: `tests/convex/notifications.test.ts`, `tests/unit/notifications.test.ts` | Passing |
+
+Not done: Swahili text (structure ready), provider-specific webhook adapters (Resend, Africa's Talking and Meta sign differently, so a relay or per-provider mapping is needed), SMS/WhatsApp to staff needs a phone each member enters themselves, per-recipient rate limits, visitor opt-out.
+
+Integration notes. F1: call `ctx.scheduler.runAfter(0, internal.notifications.onInvitationCreated, { organizationId, siteId?, invitee: { name?, email?, phone? }, link, idempotencyKey })`. P1/F1: uncomment their lines in `convex/crons.ts` once `internal.retention.purgeExpired` and `internal.files.purgeExpired` exist. The outbox holds addresses and first names for up to 90 days (`notificationsCron.purgeOld`); P1's retention settings should drive that window.
+
 ## Needs your credentials
 
 - **Convex**: run `pnpm convex:dev` (creates the deployment and real codegen).
@@ -77,7 +94,6 @@ Not done: voiding an entry without a replacement, exports and reports of hours (
 
 4. Invitations, form builder (versioned), approval/notification policies
 5. Reports, CSV exports, audit UI, retention
-6. Email/SMS/WhatsApp adapters, crons, webhooks
 7. Plans, usage metering, billing provider, trials
 8. Hardening, monitoring, backups, deployment docs, dedicated deployments
 
