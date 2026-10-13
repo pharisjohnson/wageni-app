@@ -2,7 +2,9 @@
 
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { buttonVariants } from "@/components/ui/button";
 import { createContext, useContext, useEffect, type CSSProperties, type ReactNode } from "react";
 import { FullPageSpinner } from "@/components/layout/full-page-spinner";
 import { api } from "@/convex/_generated/api";
@@ -65,6 +67,9 @@ export function KioskFrame({ slug, children }: { slug: string; children: ReactNo
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold">Kiosk not available</h1>
           <p className="text-muted-foreground">This organization address does not exist or is not active.</p>
+          <Link href="/" className={buttonVariants({ variant: "outline", className: "min-h-12 px-6 text-base" })}>
+            Go to home page
+          </Link>
         </div>
       </main>
     );

@@ -44,7 +44,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div className="flex h-full flex-col gap-4 p-3">
+    <div className="flex min-h-full flex-col gap-4 p-3">
       <Link href="/app" className="px-3 pt-1 text-lg font-semibold" onClick={onNavigate}>
         {appConfig.name}
       </Link>
@@ -59,7 +59,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { org } = useActiveOrg();
   return (
     <div className="flex min-h-svh flex-1">
-      <aside className="sticky top-0 hidden h-svh w-64 shrink-0 border-r bg-sidebar md:block">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:shadow-md focus:ring-3 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
+      {/* The sidebar scrolls on its own when the nav is taller than the viewport. */}
+      <aside className="sticky top-0 hidden h-svh w-64 shrink-0 overflow-y-auto overscroll-contain border-r bg-sidebar md:block">
         <SidebarBody />
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -70,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <Menu />
             </SheetTrigger>
-            <SheetContent side="left" className="w-72 p-0">
+            <SheetContent side="left" className="w-72 overflow-y-auto p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <SidebarBody onNavigate={() => setOpen(false)} />
             </SheetContent>
@@ -82,7 +89,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <UserMenu />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 sm:p-6">{children}</main>
+        <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 outline-none sm:p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -54,7 +54,26 @@ const STEPS = [
   "Check-out closes the visit with a full audit trail",
 ];
 
-const ROLES = ["Owners & admins", "Receptionists", "Guards", "Hosts", "Staff", "Visitors"];
+const FAQ = [
+  {
+    q: "Do visitors need an account?",
+    a: "No. Visitors request an appointment from a link or are registered by reception or a guard. Only your team signs in.",
+  },
+  {
+    q: "Is our data kept separate from other organizations?",
+    a: "Yes. Every record belongs to one organization and access is enforced on the server by role, never just hidden in the interface.",
+  },
+  {
+    q: "Can we run more than one location?",
+    a: "Yes. Add sites and gates under one organization and give each team member access only to the sites they work at.",
+  },
+  {
+    q: "What does it cost?",
+    a: "Every plan starts with a free trial. Final pricing is being set; see the plans below.",
+  },
+];
+
+const ROLES =["Owners & admins", "Receptionists", "Guards", "Hosts", "Staff", "Visitors"];
 
 export default function HomePage() {
   return (
@@ -80,7 +99,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="features" className="mx-auto max-w-6xl px-4 pb-20">
+      <section id="features" className="mx-auto max-w-6xl scroll-mt-20 px-4 pb-20">
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <div key={f.title} className="space-y-3 rounded-3xl border bg-card p-6">
@@ -94,7 +113,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 pb-20 md:grid-cols-2">
+      <section id="how-it-works" className="mx-auto grid max-w-6xl scroll-mt-20 items-center gap-10 px-4 pb-20 md:grid-cols-2">
         <div className="space-y-6">
           <h2 className="font-display text-4xl leading-tight font-extrabold tracking-tight text-balance">
             From request to check-out, one flow
@@ -121,6 +140,18 @@ export default function HomePage() {
             ))}
           </ul>
         </div>
+      </section>
+
+      <section id="faq" className="mx-auto max-w-3xl scroll-mt-20 space-y-6 px-4 pb-20">
+        <h2 className="font-display text-3xl font-extrabold tracking-tight">Frequently asked questions</h2>
+        <dl className="space-y-5">
+          {FAQ.map((item) => (
+            <div key={item.q} className="space-y-1">
+              <dt className="font-semibold">{item.q}</dt>
+              <dd className="text-muted-foreground">{item.a}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
       <section className="mx-auto max-w-6xl space-y-8 px-4 pb-24">

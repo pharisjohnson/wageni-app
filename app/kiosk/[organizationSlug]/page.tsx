@@ -6,7 +6,7 @@ import { useKioskOrg } from "@/components/kiosk/kiosk-frame";
 import { cn } from "@/lib/utils";
 
 const tile =
-  "flex flex-col items-center justify-center gap-4 rounded-2xl p-10 text-2xl font-semibold shadow-sm outline-none transition-transform focus-visible:ring-4 focus-visible:ring-ring/50 active:scale-[0.98] min-h-56";
+  "flex flex-col items-center justify-center gap-4 rounded-2xl p-10 text-2xl font-semibold shadow-sm outline-none transition-transform focus-visible:ring-4 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background active:scale-[0.98] min-h-48 sm:min-h-56";
 
 export default function KioskWelcomePage() {
   const org = useKioskOrg();
@@ -22,10 +22,12 @@ export default function KioskWelcomePage() {
         <Link href={`/kiosk/${org.slug}/visitor`} className={cn(tile, "bg-primary text-primary-foreground")}>
           <UserRound className="size-12" aria-hidden />
           Visitor
+          <span className="text-base font-normal opacity-90">Here to see someone</span>
         </Link>
         <Link href={`/kiosk/${org.slug}/staff`} className={cn(tile, "border bg-background")}>
           <BadgeCheck className="size-12" aria-hidden />
           Staff
+          <span className="text-base font-normal text-muted-foreground">I work here</span>
         </Link>
       </div>
       {org.branding.privacyNotice && (
