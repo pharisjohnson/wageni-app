@@ -168,7 +168,7 @@ export default function HomePage() {
       </section>
 
       {/* How it works */}
-      <section id="how-it-works" className="mx-auto max-w-6xl space-y-10 px-4 pb-20">
+      <section id="how-it-works" className="scroll-mt-20 mx-auto max-w-6xl space-y-10 px-4 pb-20">
         <div className="max-w-2xl space-y-3">
           <h2 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             From arrival to a closed meeting
@@ -223,7 +223,7 @@ export default function HomePage() {
       </section>
 
       {/* Features */}
-      <section id="features" className="mx-auto max-w-6xl space-y-10 px-4 pb-20">
+      <section id="features" className="scroll-mt-20 mx-auto max-w-6xl space-y-10 px-4 pb-20">
         <div className="max-w-2xl space-y-3">
           <h2 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
             Everything the front desk and the gate need
@@ -371,7 +371,7 @@ export default function HomePage() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="mx-auto max-w-3xl space-y-6 px-4 pb-20">
+      <section id="faq" className="scroll-mt-20 mx-auto max-w-3xl space-y-6 px-4 pb-20">
         <h2 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl">Questions</h2>
         <div className="divide-y rounded-2xl border bg-card">
           {FAQ.map((f) => (
@@ -389,7 +389,7 @@ export default function HomePage() {
       </section>
 
       {/* Plans */}
-      <section id="pricing" className="mx-auto max-w-6xl space-y-8 px-4 pb-20">
+      <section id="pricing" className="scroll-mt-20 mx-auto max-w-6xl space-y-8 px-4 pb-20">
         <div className="space-y-2">
           <h2 className="font-display text-3xl font-extrabold tracking-tight">Plans</h2>
           <p className="text-muted-foreground">Start with a free trial. Plans and pricing are being finalised.</p>

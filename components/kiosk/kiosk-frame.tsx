@@ -90,6 +90,9 @@ export function KioskFrame({ slug, children }: { slug: string; children: ReactNo
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold">Kiosk not available</h1>
           <p className="text-muted-foreground">This organization address does not exist or is not active.</p>
+          <Link href="/" className={cn(buttonVariants({ variant: "outline" }), "h-12 px-5 text-base")}>
+            Go to home page
+          </Link>
         </div>
       </main>
     );

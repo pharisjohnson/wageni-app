@@ -3,6 +3,14 @@ import { ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button";
 import { appConfig } from "@/lib/config";
+import { MobileNav } from "./mobile-nav";
+
+const MARKETING_LINKS = [
+  { href: "/#features", label: "Features" },
+  { href: "/#how-it-works", label: "How it works" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/#faq", label: "FAQ" },
+];
 
 /** Page frame for the public marketing site: applies the marketing theme, header and footer. */
 export function MarketingShell({ children }: { children: ReactNode }) {
@@ -28,28 +36,30 @@ export function BrandMark() {
 
 export function SiteHeader() {
   return (
-    <header>
+    <header className="sticky top-0 z-40 bg-background/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4">
         <Link href="/" aria-label={`${appConfig.name} home`}>
           <BrandMark />
         </Link>
-        <nav aria-label="Marketing" className="ml-auto flex items-center gap-1 sm:gap-2">
-          <Link href="/#features" className={buttonVariants({ variant: "ghost", size: "sm", className: "max-sm:hidden" })}>
-            Features
-          </Link>
-          <Link href="/#faq" className={buttonVariants({ variant: "ghost", size: "sm", className: "max-sm:hidden" })}>
-            FAQ
-          </Link>
-          <Link href="/pricing" className={buttonVariants({ variant: "ghost", size: "sm", className: "max-sm:hidden" })}>
-            Pricing
-          </Link>
-          <Link href="/sign-in" className={buttonVariants({ variant: "ghost", size: "sm", className: "max-sm:hidden" })}>
+        <nav aria-label="Marketing" className="ml-auto hidden items-center gap-2 md:flex">
+          {MARKETING_LINKS.map((l) => (
+            <Link key={l.href} href={l.href} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+              {l.label}
+            </Link>
+          ))}
+          <Link href="/sign-in" className={buttonVariants({ variant: "ghost", size: "sm" })}>
             Sign in
           </Link>
           <Link href="/sign-up" className={buttonVariants({ size: "sm" })}>
             Get started
           </Link>
         </nav>
+        <div className="ml-auto flex items-center gap-2 md:hidden">
+          <Link href="/sign-up" className={buttonVariants({ size: "sm" })}>
+            Get started
+          </Link>
+          <MobileNav links={MARKETING_LINKS} />
+        </div>
       </div>
     </header>
   );
