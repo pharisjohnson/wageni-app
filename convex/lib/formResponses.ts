@@ -8,6 +8,7 @@ import {
 } from "../../lib/validation/forms";
 import { writeAudit } from "./audit";
 import { appError } from "./errors";
+import { initialRedactionCheck } from "../../lib/answer-retention";
 import { uploadedBy, type Uploader } from "./files";
 import { disabledFieldTypes } from "./policy";
 
@@ -64,7 +65,8 @@ export async function checkAnswers(
   org: Doc<"organizations">,
   version: Doc<"formVersions">,
   raw: unknown,
-  uploader: Uploader,
+  /** Who uploaded any files. `null` = this caller has no upload path, so file answers are refused. */
+  uploader: Uploader | null,
 ): Promise<{ answers: Record<string, unknown>; fileIds: Map<Id<"files">, FormField> }> {
   const fields = fieldsOf(version);
   const check = validateAnswers(fields, raw, { skipTypes: disabledFieldTypes(org) });
@@ -86,6 +88,7 @@ export async function checkAnswers(
         !file ||
         file.organizationId !== org._id ||
         file.status !== "pending" ||
+        !uploader ||
         !uploadedBy(file, uploader) ||
         file.kind !== fileKindForField(field.type) ||
         fileIds.has(fileId) ||
@@ -118,10 +121,18 @@ export async function storeResponse(
     visitId?: Id<"visits">;
     appointmentId?: Id<"appointments">;
     userId?: Id<"users">;
+    attendanceEventId?: Id<"attendanceEvents">;
     actor: { actorUserId?: Id<"users">; kioskDeviceId?: Id<"kioskDevices"> };
   },
 ): Promise<Id<"formResponses">> {
   const now = Date.now();
+  const nextRedactionCheck = initialRedactionCheck({
+    fields: fieldsOf(input.version),
+    answers: input.answers,
+    createdAt: now,
+    audience: input.version.audience,
+    retention: input.org.retention,
+  });
   const responseId = await ctx.db.insert("formResponses", {
     organizationId: input.org._id,
     siteId: input.siteId,
@@ -130,7 +141,9 @@ export async function storeResponse(
     visitId: input.visitId,
     appointmentId: input.appointmentId,
     userId: input.userId,
+    attendanceEventId: input.attendanceEventId,
     answers: input.answers as Doc<"formResponses">["answers"],
+    nextRedactionCheck,
     createdAt: now,
   });
   for (const [fileId, field] of input.fileIds) {
@@ -156,4 +169,23 @@ export async function storeResponse(
 export function servedFields(org: Doc<"organizations">, version: Doc<"formVersions">): FormField[] {
   const off = disabledFieldTypes(org);
   return fieldsOf(version).filter((f) => !off.includes(f.type));
+}
+
+/**
+ * The visitor form an appointment must answer at the kiosk, or null when none
+ * applies: no published form for the site, or the appointment already has a
+ * response (the visitor completed the form through their invitation link).
+ */
+export async function formRequiredForAppointment(
+  ctx: QueryCtx,
+  kiosk: { org: Doc<"organizations">; site: Doc<"sites"> },
+  appt: Doc<"appointments">,
+) {
+  const active = await resolveActiveForm(ctx, kiosk.org._id, kiosk.site._id, "visitor");
+  if (!active) return null;
+  const answered = await ctx.db
+    .query("formResponses")
+    .withIndex("by_appointment", (q) => q.eq("appointmentId", appt._id))
+    .first();
+  return answered ? null : active;
 }

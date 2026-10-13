@@ -1,6 +1,8 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { writeAudit } from "./audit";
+import type { KioskContext } from "./kiosk";
+import { dayBoundsInZone } from "./time";
 
 /**
  * Failed-lookup throttle for kiosk functions that take guessable secrets
@@ -57,4 +59,25 @@ export function phoneDigits(phone: string) {
  */
 export function phoneKey(phone: string) {
   return phoneDigits(phone).slice(-9);
+}
+
+const MAX_TODAY = 300;
+
+/** Approved appointments today at the device's site whose visitor phone matches. */
+export async function todaysAppointmentsForPhone(ctx: MutationCtx & { kiosk: KioskContext }, phone: string) {
+  const { org, site } = ctx.kiosk;
+  const key = phoneKey(phone);
+  const { start, end } = dayBoundsInZone(Date.now(), site.timeZone);
+  const today = await ctx.db
+    .query("appointments")
+    .withIndex("by_site_start", (q) => q.eq("siteId", site._id).gte("scheduledStart", start).lt("scheduledStart", end))
+    .take(MAX_TODAY);
+  const out: { appt: Doc<"appointments">; visitor: Doc<"visitors"> }[] = [];
+  for (const appt of today) {
+    if (appt.organizationId !== org._id || appt.status !== "approved") continue;
+    const visitor = await ctx.db.get(appt.visitorId);
+    if (!visitor || visitor.organizationId !== org._id || !visitor.phone) continue;
+    if (phoneKey(visitor.phone) === key) out.push({ appt, visitor });
+  }
+  return out;
 }

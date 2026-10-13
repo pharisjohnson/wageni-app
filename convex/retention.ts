@@ -274,6 +274,11 @@ export const sweepAll = internalMutation({
         organizationId: org._id,
         dryRun: false,
       });
+      // F2: per-field answer redaction runs in its own job so one cannot starve the other.
+      await ctx.scheduler.runAfter(0, internal.formRetention.redactExpired, {
+        organizationId: org._id,
+        dryRun: false,
+      });
     }
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.retention.sweepAll, { cursor: page.continueCursor });

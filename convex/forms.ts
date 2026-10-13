@@ -6,6 +6,7 @@ import {
   publishProblems,
   type FormField,
 } from "../lib/validation/forms";
+import { isRedactedAnswer } from "../lib/validation/forms";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hasSiteAccess, requireSite } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
@@ -293,7 +294,13 @@ async function loadReadableResponse(ctx: OrgCtx, responseId: Id<"formResponses">
       hasSiteAccess(ctx.oc.membership, appt!.siteId) &&
       (ctx.oc.permissions.has("appointments:read_site") || appt!.hostUserId === ctx.oc.user._id);
   } else if (response.userId) {
-    allowed = response.userId === ctx.oc.user._id || ctx.oc.permissions.has("forms:manage");
+    // A staff response: its author, a forms manager, or someone who may read
+    // staff attendance at the site it was given at.
+    allowed =
+      response.userId === ctx.oc.user._id ||
+      ctx.oc.permissions.has("forms:manage") ||
+      (ctx.oc.permissions.has("staff_attendance:read_site") &&
+        (!response.siteId || hasSiteAccess(ctx.oc.membership, response.siteId)));
   }
   if (!allowed) throw appError("NOT_FOUND");
   const version = await ctx.db.get(response.formVersionId);
@@ -324,34 +331,86 @@ export const visitResponses = orgQuery({
       if (response.organizationId !== ctx.oc.org._id) continue;
       const version = await ctx.db.get(response.formVersionId);
       if (!version) continue;
-      const items = [];
-      for (const f of fieldsOf(version)) {
-        const a = response.answers[f.id];
-        if (a === undefined) continue;
-        if (f.sensitive) {
-          // Value withheld: reading it is an audited mutation.
-          items.push({ id: f.id, label: f.label, type: f.type, sensitive: true as const });
-          continue;
-        }
-        if (typeof a === "object" && !Array.isArray(a) && "fileId" in a) {
-          const file = await ctx.db.get(a.fileId);
-          items.push({
-            id: f.id,
-            label: f.label,
-            type: f.type,
-            sensitive: false as const,
-            file: { fileId: a.fileId, deleted: !file || file.status === "deleted" },
-          });
-          continue;
-        }
-        items.push({ id: f.id, label: f.label, type: f.type, sensitive: false as const, value: display(a) });
-      }
       out.push({
         responseId: response._id,
         formName: version.name,
         version: version.version,
         createdAt: response.createdAt,
-        items,
+        items: await answerItems(ctx, version, response),
+        canRevealSensitive: canReveal,
+      });
+    }
+    return out;
+  },
+});
+
+/**
+ * Display items for one response. Sensitive answers are listed WITHOUT their
+ * value (reading them is an audited mutation); file answers carry only the id
+ * and whether the file is gone or was rejected by content verification.
+ */
+async function answerItems(ctx: OrgCtx, version: Doc<"formVersions">, response: Doc<"formResponses">) {
+  const items = [];
+  for (const f of fieldsOf(version)) {
+    const a = response.answers[f.id];
+    if (a === undefined) continue;
+    if (f.sensitive) {
+      items.push({ id: f.id, label: f.label, type: f.type, sensitive: true as const });
+      continue;
+    }
+    if (typeof a === "object" && !Array.isArray(a) && "fileId" in a) {
+      const file = await ctx.db.get(a.fileId);
+      items.push({
+        id: f.id,
+        label: f.label,
+        type: f.type,
+        sensitive: false as const,
+        file: fileState(a.fileId, file),
+      });
+      continue;
+    }
+    items.push({ id: f.id, label: f.label, type: f.type, sensitive: false as const, value: display(a) });
+  }
+  return items;
+}
+
+function fileState(fileId: Id<"files">, file: Doc<"files"> | null) {
+  return {
+    fileId,
+    deleted: !file || file.status === "deleted",
+    rejected: file?.verifyStatus === "rejected",
+    verified: file?.verifyStatus === "verified",
+  };
+}
+
+/**
+ * Responses a person gave to staff forms (for example at clock-in). Allowed
+ * for the person themselves and for anyone with `staff_attendance:read_site`,
+ * limited to the sites the caller can access. Sensitive answers are withheld
+ * exactly as for visits: `revealSensitive` is the audited way to read them.
+ */
+export const staffResponses = orgQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const isSelf = userId === ctx.oc.user._id;
+    if (!isSelf) ctx.require("staff_attendance:read_site");
+    const rows = await ctx.db
+      .query("formResponses")
+      .withIndex("by_org_user", (q) => q.eq("organizationId", ctx.oc.org._id).eq("userId", userId))
+      .order("desc")
+      .take(30);
+    const canReveal = ctx.oc.permissions.has("forms:read_sensitive");
+    const out = [];
+    for (const response of rows) {
+      if (response.siteId && !hasSiteAccess(ctx.oc.membership, response.siteId)) continue;
+      const version = await ctx.db.get(response.formVersionId);
+      if (!version || version.organizationId !== ctx.oc.org._id) continue;
+      out.push({
+        responseId: response._id,
+        formName: version.name,
+        version: version.version,
+        createdAt: response.createdAt,
+        items: await answerItems(ctx, version, response),
         canRevealSensitive: canReveal,
       });
     }
@@ -363,6 +422,7 @@ function display(a: unknown): string {
   if (typeof a === "boolean") return a ? "Yes" : "No";
   if (Array.isArray(a)) return a.join(", ");
   if (typeof a === "object" && a !== null) {
+    if (isRedactedAnswer(a)) return "Removed (retention period ended)";
     const o = a as { accepted?: boolean; text?: string; scanned?: boolean };
     if (typeof o.accepted === "boolean") return `${o.accepted ? "Agreed" : "Declined"}: ${o.text ?? ""}`;
     if (o.scanned) return "ID scanned (image not kept)";
@@ -385,7 +445,7 @@ export const revealSensitive = orgMutation({
       if (!f.sensitive || a === undefined) continue;
       if (typeof a === "object" && !Array.isArray(a) && "fileId" in a) {
         const file = await ctx.db.get(a.fileId);
-        items.push({ id: f.id, label: f.label, type: f.type, file: { fileId: a.fileId, deleted: !file || file.status === "deleted" } });
+        items.push({ id: f.id, label: f.label, type: f.type, file: fileState(a.fileId, file) });
       } else {
         items.push({ id: f.id, label: f.label, type: f.type, value: display(a) });
       }
@@ -419,6 +479,8 @@ export const openFile = orgMutation({
     if (!field || field.sensitive || file.kind === "id_scan" || file.kind === "face_photo") {
       ctx.require("forms:read_sensitive");
     }
+    // Nothing is opened until its bytes were checked against the declared type.
+    if (file.verifyStatus !== "verified") throw appError("CONFLICT", "This file is still being checked. Try again in a moment.");
     const url = await ctx.storage.getUrl(file.storageId);
     if (!url) throw appError("NOT_FOUND");
     await writeAudit(ctx, {

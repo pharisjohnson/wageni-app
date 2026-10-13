@@ -93,6 +93,7 @@ export const vCorrectionStatus = v.union(
 export const vFieldType = v.union(...FIELD_TYPES.map((t) => v.literal(t)));
 export const vFormAudience = v.union(...FORM_AUDIENCES.map((t) => v.literal(t)));
 export const vFileKind = v.union(...FILE_KINDS.map((t) => v.literal(t)));
+export const vVerifyStatus = v.union(v.literal("pending"), v.literal("verified"), v.literal("rejected"));
 
 /** Mirrors `formFieldSchema` (lib/validation/forms.ts), which is stricter. */
 export const vFormField = v.object({
@@ -122,6 +123,8 @@ export const vAnswerValue = v.union(
   v.object({ fileId: v.id("files") }),
   v.object({ accepted: v.boolean(), text: v.string() }),
   v.object({ scanned: v.boolean() }),
+  // F2: tombstone left by the answer-retention job (the response row stays).
+  v.object({ redacted: v.literal(true) }),
 );
 export const vAnswers = v.record(v.string(), vAnswerValue);
 

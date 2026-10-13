@@ -17,6 +17,8 @@ import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as files from "../files.js";
 import type * as filesKiosk from "../filesKiosk.js";
+import type * as filesVerify from "../filesVerify.js";
+import type * as formRetention from "../formRetention.js";
 import type * as forms from "../forms.js";
 import type * as gates from "../gates.js";
 import type * as http from "../http.js";
@@ -40,6 +42,7 @@ import type * as lib_kioskLookup from "../lib/kioskLookup.js";
 import type * as lib_notify from "../lib/notify.js";
 import type * as lib_pin from "../lib/pin.js";
 import type * as lib_policy from "../lib/policy.js";
+import type * as lib_proxy from "../lib/proxy.js";
 import type * as lib_publicLimit from "../lib/publicLimit.js";
 import type * as lib_reportExport from "../lib/reportExport.js";
 import type * as lib_reports from "../lib/reports.js";
@@ -55,6 +58,7 @@ import type * as notificationsDelivery from "../notificationsDelivery.js";
 import type * as organizations from "../organizations.js";
 import type * as platform from "../platform.js";
 import type * as policies from "../policies.js";
+import type * as publicLimits from "../publicLimits.js";
 import type * as reports from "../reports.js";
 import type * as reportsExport from "../reportsExport.js";
 import type * as retention from "../retention.js";
@@ -81,6 +85,8 @@ import type * as visits from "../visits.js";
 "dashboard": typeof dashboard,
 "files": typeof files,
 "filesKiosk": typeof filesKiosk,
+"filesVerify": typeof filesVerify,
+"formRetention": typeof formRetention,
 "forms": typeof forms,
 "gates": typeof gates,
 "http": typeof http,
@@ -104,6 +110,7 @@ import type * as visits from "../visits.js";
 "lib/notify": typeof lib_notify,
 "lib/pin": typeof lib_pin,
 "lib/policy": typeof lib_policy,
+"lib/proxy": typeof lib_proxy,
 "lib/publicLimit": typeof lib_publicLimit,
 "lib/reportExport": typeof lib_reportExport,
 "lib/reports": typeof lib_reports,
@@ -119,6 +126,7 @@ import type * as visits from "../visits.js";
 "organizations": typeof organizations,
 "platform": typeof platform,
 "policies": typeof policies,
+"publicLimits": typeof publicLimits,
 "reports": typeof reports,
 "reportsExport": typeof reportsExport,
 "retention": typeof retention,
