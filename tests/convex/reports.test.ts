@@ -395,8 +395,9 @@ describe("csv export", () => {
     expect(out.rowCount).toBe(1);
     expect(out.truncated).toBe(false);
     expect(out.filename).toBe("wageni-visits-2026-06-01_to_2026-06-30.csv");
-    // Sensitive columns need forms:read_sensitive, which no role holds yet.
-    await expectCode(s.owner.as.mutation(api.reportsExport.csv, exportArgs(s, { includeSensitive: true })), "FORBIDDEN");
+    // Sensitive columns need forms:read_sensitive (owner and admin hold it; the default export omits them).
+    const full = await s.owner.as.mutation(api.reportsExport.csv, exportArgs(s, { includeSensitive: true }));
+    expect(full.omittedColumns).toEqual([]);
   });
 
   test("every export is audited with who, what, filters and row count", async () => {

@@ -16,6 +16,14 @@ import {
   vAttendanceType,
   vAttendanceSource,
   vCorrectionStatus,
+  vAnswers,
+  vFileKind,
+  vFormAudience,
+  vFormField,
+  vFormStatus,
+  vInvitationStatus,
+  vOrgPolicies,
+
   vRetention,
   vChannel,
   vNotificationStatus,
@@ -48,6 +56,9 @@ export default defineSchema({
     timeZone: v.string(),
     status: vOrgStatus,
     isDemo: v.optional(v.boolean()),
+    // --- F1: policy switches (face capture is OFF unless true; approval defaults to required)
+    policies: v.optional(vOrgPolicies),
+    // --- end F1
     // --- P1: retention periods in days (resolved + clamped by lib/retention.ts)
     retention: v.optional(vRetention),
     // --- end P1
@@ -81,6 +92,9 @@ export default defineSchema({
     address: v.optional(v.string()),
     timeZone: v.string(),
     status: vRecordStatus,
+    // --- F1: overrides the organization's approval policy for this site
+    requireApproval: v.optional(v.boolean()),
+    // --- end F1
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
@@ -276,6 +290,110 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_org_user", ["organizationId", "userId"]),
   // --- end A1
+
+  // --- F1: forms, immutable versions, responses, files, invitations
+  // `draftFields` is the editable working copy. Publishing copies it into a
+  // NEW `formVersions` row; version rows are never patched or deleted.
+  forms: defineTable({
+    organizationId: v.id("organizations"),
+    name: v.string(),
+    audience: vFormAudience,
+    siteId: v.optional(v.id("sites")),
+    purpose: v.optional(v.string()),
+    status: vFormStatus,
+    draftFields: v.array(vFormField),
+    publishedVersionId: v.optional(v.id("formVersions")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId", "createdAt"])
+    .index("by_org_audience_status", ["organizationId", "audience", "status"]),
+
+  formVersions: defineTable({
+    organizationId: v.id("organizations"),
+    formId: v.id("forms"),
+    version: v.number(),
+    name: v.string(),
+    audience: vFormAudience,
+    siteId: v.optional(v.id("sites")),
+    fields: v.array(vFormField),
+    publishedAt: v.number(),
+    publishedBy: v.id("users"),
+  }).index("by_form", ["formId", "version"]),
+
+  // A response permanently references the version it was answered with.
+  // Exactly one subject: visitId (or appointmentId before the visit exists)
+  // for visitor forms, userId for staff forms.
+  formResponses: defineTable({
+    organizationId: v.id("organizations"),
+    siteId: v.optional(v.id("sites")),
+    formId: v.id("forms"),
+    formVersionId: v.id("formVersions"),
+    visitId: v.optional(v.id("visits")),
+    appointmentId: v.optional(v.id("appointments")),
+    userId: v.optional(v.id("users")),
+    answers: vAnswers,
+    createdAt: v.number(),
+  })
+    .index("by_visit", ["visitId"])
+    .index("by_appointment", ["appointmentId"])
+    .index("by_org_user", ["organizationId", "userId", "createdAt"]),
+
+  // Private Convex storage objects. `deleteAfter` drives retention; the
+  // record outlives the bytes (status "deleted") so answers can say "removed".
+  files: defineTable({
+    organizationId: v.id("organizations"),
+    siteId: v.optional(v.id("sites")),
+    storageId: v.optional(v.id("_storage")),
+    kind: vFileKind,
+    contentType: v.string(),
+    size: v.number(),
+    status: v.union(v.literal("pending"), v.literal("attached"), v.literal("deleted")),
+    // Who uploaded: a paired kiosk device, or an invitation (public link).
+    uploadedByDeviceId: v.optional(v.id("kioskDevices")),
+    uploadedByInvitationId: v.optional(v.id("invitations")),
+    responseId: v.optional(v.id("formResponses")),
+    fieldId: v.optional(v.string()),
+    deleteAfter: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_status_delete_after", ["status", "deleteAfter"])
+    .index("by_storage", ["storageId"]),
+
+  invitations: defineTable({
+    organizationId: v.id("organizations"),
+    siteId: v.id("sites"),
+    hostUserId: v.id("users"),
+    createdBy: v.id("users"),
+    visitorName: v.optional(v.string()),
+    visitorPhone: v.optional(v.string()),
+    visitorEmail: v.optional(v.string()),
+    purpose: v.string(),
+    scheduledStart: v.number(),
+    scheduledEnd: v.number(),
+    // SHA-256 of the link token. The token itself is never stored.
+    tokenHash: v.string(),
+    status: vInvitationStatus,
+    expiresAt: v.number(),
+    formId: v.optional(v.id("forms")),
+    appointmentId: v.optional(v.id("appointments")),
+    // Pending-state writes (uploads) per invitation, to stop abuse of a leaked link.
+    uploadCount: v.optional(v.number()),
+    submittedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_org", ["organizationId", "createdAt"])
+    .index("by_host", ["hostUserId", "createdAt"]),
+
+  // Fixed-window counters for public (unauthenticated) endpoints.
+  publicRateLimits: defineTable({
+    key: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("by_key", ["key"]),
+  // --- end F1
 
   // --- N1: notifications
   // One row per message per channel. `payload` holds placeholder values only

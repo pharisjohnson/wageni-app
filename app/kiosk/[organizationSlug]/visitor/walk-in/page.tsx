@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import type { FunctionReturnType } from "convex/server";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import type { FileUploader } from "@/components/forms-builder/capture-field";
+import { FormRenderer } from "@/components/forms-builder/form-renderer";
+import { useFormController } from "@/components/forms-builder/use-form-controller";
+import { FullPageSpinner } from "@/components/layout/full-page-spinner";
+import { postBlob, UPLOAD_REJECTED_MESSAGES } from "@/lib/files/image";
+import type { FormField } from "@/lib/validation/forms";
 import { KioskDeviceGate } from "@/components/kiosk/kiosk-device-gate";
 import { useKioskOrg } from "@/components/kiosk/kiosk-frame";
 import { Label } from "@/components/ui/label";
@@ -14,7 +21,7 @@ import { KioskButton, KioskDone, KioskField, KioskMessage, KioskPanel } from "..
 type Host = { userId: Id<"users">; name: string };
 type Fields = "name" | "phone" | "company" | "purpose" | "host";
 
-function WalkIn() {
+function FixedWalkIn() {
   const org = useKioskOrg();
   const kiosk = useKioskApi(org.slug);
   const { query } = kiosk;
@@ -156,6 +163,148 @@ function WalkIn() {
       </form>
     </KioskPanel>
   );
+}
+
+type ActiveForm = NonNullable<FunctionReturnType<typeof api.kioskForms.activeVisitorForm>>;
+
+/** Walk-in driven by the published visitor form for this kiosk's site. */
+function FormWalkIn({ active }: { active: ActiveForm }) {
+  const org = useKioskOrg();
+  const kiosk = useKioskApi(org.slug);
+  const { query } = kiosk;
+  const fields = active.fields as FormField[];
+  const ctrl = useFormController(fields);
+  const [hostId, setHostId] = useState("");
+  const [hosts, setHosts] = useState<Host[] | null>(null);
+  const [hostError, setHostError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ firstName: string; hostName: string } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    query(api.kioskVisitor.hosts, {})
+      .then((list) => live && setHosts(list))
+      .catch(() => live && setHosts([]));
+    return () => {
+      live = false;
+    };
+  }, [query]);
+
+  // Uploads go straight to private storage; the response only keeps the file id.
+  const uploader = useMemo<FileUploader>(
+    () => async (kind, blob) => {
+      try {
+        const url = await kiosk.mutation(api.filesKiosk.generateUploadUrl, { kind });
+        const storageId = (await postBlob(url, blob)) as Id<"_storage">;
+        const res = await kiosk.mutation(api.filesKiosk.registerUploaded, { storageId, kind });
+        if (res.status !== "ok") throw new Error(UPLOAD_REJECTED_MESSAGES[res.reason]);
+        return res.fileId;
+      } catch (e) {
+        throw new Error(e instanceof Error && e.message ? e.message : "Upload failed. Please try again.");
+      }
+    },
+    [kiosk],
+  );
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    setHostError(null);
+    const answers = ctrl.validate();
+    if (!hostId) setHostError("Choose who you are here to see.");
+    if (!answers || !hostId) return;
+    setBusy(true);
+    try {
+      const res = await kiosk.mutation(api.kioskForms.submitWalkIn, {
+        hostUserId: hostId as Id<"users">,
+        versionId: active.versionId,
+        answers: answers as never,
+      });
+      setDone({ firstName: res.firstName, hostName: res.hostName });
+      ctrl.reset();
+      setHostId("");
+    } catch (err) {
+      if (!(err instanceof KioskUnpairedError)) setFormError(friendlyKioskError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <KioskDone title={`Thank you, ${done.firstName}`}>
+        <p>You are registered to see {done.hostName}.</p>
+        <p className="text-base text-muted-foreground">
+          Please wait nearby. Reception or security will admit you and give you a badge.
+        </p>
+      </KioskDone>
+    );
+  }
+
+  const notice = org.branding.privacyNotice;
+  return (
+    <KioskPanel title="Welcome! Please register">
+      <form onSubmit={submit} className="space-y-5" noValidate>
+        <FormRenderer fields={fields} ctrl={ctrl} uploader={uploader} variant="kiosk" />
+        <div className="space-y-2">
+          <Label htmlFor="host" className="text-lg">
+            Who are you here to see?
+          </Label>
+          <NativeSelect
+            id="host"
+            className="h-14 px-4 text-lg"
+            value={hostId}
+            disabled={hosts === null || hosts.length === 0}
+            aria-invalid={hostError ? true : undefined}
+            onChange={(e) => setHostId(e.target.value)}
+          >
+            <option value="">{hosts === null ? "Loading..." : "Choose a person"}</option>
+            {(hosts ?? []).map((h) => (
+              <option key={h.userId} value={h.userId}>
+                {h.name}
+              </option>
+            ))}
+          </NativeSelect>
+          {hosts?.length === 0 && (
+            <p className="text-base text-muted-foreground">No one is available to choose here. Please ask reception.</p>
+          )}
+          {hostError && <p className="text-base text-destructive">{hostError}</p>}
+        </div>
+        {notice && (
+          <section aria-label="Privacy notice" className="space-y-1 rounded-xl bg-muted p-4 text-sm">
+            <h2 className="font-semibold">Privacy notice</h2>
+            <p className="whitespace-pre-line text-muted-foreground">{notice}</p>
+          </section>
+        )}
+        {formError && <KioskMessage>{formError}</KioskMessage>}
+        <KioskButton type="submit" className="w-full" disabled={busy || hosts === null}>
+          {busy ? "Registering..." : "Register me"}
+        </KioskButton>
+      </form>
+    </KioskPanel>
+  );
+}
+
+/** The published form when there is one, otherwise the fixed fields. */
+function WalkIn() {
+  const org = useKioskOrg();
+  const { query } = useKioskApi(org.slug);
+  // undefined = loading, null = no published form (use the fixed fields)
+  const [active, setActive] = useState<ActiveForm | null | undefined>(undefined);
+
+  useEffect(() => {
+    let live = true;
+    query(api.kioskForms.activeVisitorForm, {})
+      .then((f) => live && setActive(f))
+      .catch(() => live && setActive(null));
+    return () => {
+      live = false;
+    };
+  }, [query]);
+
+  if (active === undefined) return <FullPageSpinner />;
+  return active ? <FormWalkIn active={active} /> : <FixedWalkIn />;
 }
 
 export default function KioskVisitorWalkInPage() {

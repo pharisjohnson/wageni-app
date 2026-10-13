@@ -6,6 +6,7 @@ import { hasSiteAccess, requireSite } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
 import { appError } from "./lib/errors";
 import { orgMutation, orgQuery, type OrgCtx } from "./lib/functions";
+import { requireApproval } from "./lib/policy";
 import { parseOrThrow } from "./lib/validate";
 import { requireHost, upsertVisitor } from "./lib/visitors";
 
@@ -99,7 +100,7 @@ export const create = orgMutation({
   },
   handler: async (ctx, { siteId, hostUserId, visitor, ...rest }) => {
     ctx.require("appointments:create");
-    await requireSite(ctx, ctx.oc, siteId);
+    const site = await requireSite(ctx, ctx.oc, siteId);
     const input = parseOrThrow(appointmentSchema, rest);
     if (input.scheduledEnd <= Date.now()) {
       throw appError("VALIDATION", "Choose a time in the future.");
@@ -113,7 +114,11 @@ export const create = orgMutation({
     const visitorId = await upsertVisitor(ctx, ctx.oc.org._id, visitor);
     const now = Date.now();
     // A host who can approve auto-approves their own bookings.
-    const selfApproved = hostUserId === me && ctx.oc.permissions.has("appointments:approve");
+    // --- F1: the approval policy (site override, then organization) can waive approval.
+    const selfApproved =
+      (hostUserId === me && ctx.oc.permissions.has("appointments:approve")) ||
+      !requireApproval(ctx.oc.org, site);
+    // --- end F1
     const id = await ctx.db.insert("appointments", {
       organizationId: ctx.oc.org._id,
       siteId,

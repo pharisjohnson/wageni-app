@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { ORG_ROLES, PERMISSIONS } from "../lib/permissions";
+import { FIELD_TYPES, FILE_KINDS, FORM_AUDIENCES, ID_SOURCES, MAPS_TO } from "../lib/validation/forms";
 
 export const vOrgRole = v.union(...ORG_ROLES.map((r) => v.literal(r)));
 export const vPermission = v.union(...PERMISSIONS.map((p) => v.literal(p)));
@@ -88,6 +89,67 @@ export const vCorrectionStatus = v.union(
 );
 // --- end A1
 
+// --- F1: forms, files, invitations
+export const vFieldType = v.union(...FIELD_TYPES.map((t) => v.literal(t)));
+export const vFormAudience = v.union(...FORM_AUDIENCES.map((t) => v.literal(t)));
+export const vFileKind = v.union(...FILE_KINDS.map((t) => v.literal(t)));
+
+/** Mirrors `formFieldSchema` (lib/validation/forms.ts), which is stricter. */
+export const vFormField = v.object({
+  id: v.string(),
+  type: vFieldType,
+  label: v.string(),
+  helpText: v.optional(v.string()),
+  required: v.boolean(),
+  options: v.optional(v.array(v.string())),
+  showIf: v.optional(v.object({ fieldId: v.string(), equals: v.string() })),
+  sensitive: v.boolean(),
+  retentionDays: v.optional(v.number()),
+  mapsTo: v.optional(v.union(...MAPS_TO.map((t) => v.literal(t)))),
+  consentText: v.optional(v.string()),
+  storeImage: v.optional(v.boolean()),
+  idSource: v.optional(v.union(...ID_SOURCES.map((t) => v.literal(t)))),
+});
+
+export const vFormStatus = v.union(v.literal("draft"), v.literal("published"), v.literal("archived"));
+
+/** One stored answer. Files are referenced by `files` record, never by raw storage id. */
+export const vAnswerValue = v.union(
+  v.string(),
+  v.number(),
+  v.boolean(),
+  v.array(v.string()),
+  v.object({ fileId: v.id("files") }),
+  v.object({ accepted: v.boolean(), text: v.string() }),
+  v.object({ scanned: v.boolean() }),
+);
+export const vAnswers = v.record(v.string(), vAnswerValue);
+
+/** Client-supplied answers: file ids arrive as plain strings and are verified server side. */
+export const vRawAnswerValue = v.union(
+  v.string(),
+  v.number(),
+  v.boolean(),
+  v.array(v.string()),
+  v.object({ fileId: v.string() }),
+  v.object({ accepted: v.boolean(), text: v.string() }),
+  v.object({ scanned: v.boolean() }),
+);
+export const vRawAnswers = v.record(v.string(), vRawAnswerValue);
+
+export const vInvitationStatus = v.union(
+  v.literal("pending"),
+  v.literal("submitted"),
+  v.literal("expired"),
+  v.literal("cancelled"),
+);
+
+/** Organization-level policy switches (Settings). */
+export const vOrgPolicies = v.object({
+  faceCaptureEnabled: v.optional(v.boolean()),
+  requireApproval: v.optional(v.boolean()),
+});
+// --- end F1
 // --- P1: retention periods (days)
 export const vRetention = v.object({
   visitRecordsDays: v.number(),

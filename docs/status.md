@@ -98,6 +98,27 @@ Definitions to confirm with a product owner: a **no-show** is an approved appoin
 
 Retention behaviour: visits are anonymised, never deleted (badge code cleared; the visitor's name/phone/email/company replaced once no un-anonymised visit or recent appointment references them; on-site visits are skipped; appointment text such as purpose and decision note is kept). Audit entries and attendance events/decided corrections past their period are deleted (a documented exception to append-only, never inside the minimum of one year). `visitEvents` hold no personal data and stay. Settled notification outbox rows follow the visitor-record period too.
 
+## Forms and invitations, Phase 4 (F1)
+
+| Area | Status |
+| --- | --- |
+| Shared field schema and answer validation (`lib/validation/forms.ts`): 17 field types, showIf, mapsTo, sensitive, retention, consent text | Done |
+| `forms` (editable `draftFields`) + immutable `formVersions`; publishing inserts a new version, nothing edits one; archive/restore | Done |
+| `formResponses` reference the version answered with; server re-validates every answer (required, type, options, showIf, sizes, consent text, file ownership) | Done |
+| Sensitive answers: `forms:read_sensitive` (owner, admin); values never in queries, revealed by audited mutations (`forms.revealSensitive`, `forms.openFile`) | Done |
+| Private file storage: kiosk-token or invitation-token upload, size/type limits, `deleteAfter` per file, `internal.files.purgeExpired` (daily cron wired) | Done |
+| ID scan behind `lib/ocr` `IdReader`; **`stubIdReader` returns no fields** (no OCR vendor chosen). Full capture/preview/suggest/confirm UI; image kept only if `storeImage` | Done (reader stubbed) |
+| Face photo: plain photo, needs required consent field, org switch `faceCaptureEnabled` (default off), no matching anywhere | Done |
+| `/app/forms` list, builder (add/reorder with buttons/remove, options, showIf, mapsTo, sensitive, retention), live preview, publish, archive, version history | Done; not exercised in a browser |
+| Kiosk walk-in renders the published visitor form for the device's site (fallback to fixed fields), `kioskForms.submitWalkIn` | Done |
+| Visit detail shows form answers (sensitive hidden unless permitted) | Done |
+| Invitations: `invitations.create/list/cancel`, public `/invite/<token>` (hashed token, generic errors, replay-proof), creates appointment per approval policy; link UI at `/app/appointments/invite` | Done |
+| Policies: `requireApproval` per org with site override, `faceCaptureEnabled` (Settings card); applied to `appointments.create` and invitations | Done |
+| Invitation delivery: scheduled `internal.notifications.onInvitationCreated` (N1). Set `APP_BASE_URL` in Convex for absolute links | Done |
+| Tests: `tests/unit/forms.test.ts`, `tests/convex/forms.test.ts`, `tests/convex/invitations.test.ts` | Passing |
+
+Not done / follow-ups: form on appointment check-in at the kiosk; staff-audience form submission (schema and builder support it, no submit path); per-field `retentionDays` is enforced for files only (text answers follow organization retention); orphan blobs from uploads that were never registered are not swept; stored file type is the client-declared content type (mutations cannot read bytes); browser verification of builder, camera, signature and invite page.
+
 ## Needs your credentials
 
 - **Convex**: run `pnpm convex:dev` (creates the deployment and real codegen).

@@ -143,6 +143,45 @@ so the device token fixes org, site and gate; the visitor never supplies them.
 - **Retention.** Settings need `settings:manage`; minimums (visitor records 30 days, audit and attendance 365 days, max 3650) are enforced when saving and again at purge time, so a stored shorter value is clamped. `retention.purgeExpired` is internal-only (not callable by clients), supports `dryRun`, works in bounded batches per organization, and writes a `retention.purged` audit entry with counts. Deleting audit and attendance rows past retention is the one sanctioned exception to append-only; it never goes below a year.
 - **Residual risks.** Anonymisation does not rewrite free text in appointment purpose/decision notes or visit purpose, which staff may have typed names into. Anonymised visitors keep their id, so counts stay linkable to a (now unnamed) visit. Late/absent figures rest on default rules, not contractual shifts.
 
+## Forms, files and invitations (F1)
+
+- **Versions are immutable.** No function patches or deletes a `formVersions`
+  row. Responses store `formVersionId`; the kiosk and invite page must post the
+  currently served version or get CONFLICT. Consent answers must carry the exact
+  text of that version.
+- **Server-side validation** (`lib/validation/forms.ts`, re-run in Convex):
+  unknown keys, required, type, option membership, showIf (hidden answers are
+  dropped), size limits. Client checks are convenience only.
+- **Sensitive data.** ID scans, face photos and ID numbers are forced
+  `sensitive`. Queries never return sensitive values or file URLs. Reading
+  needs `forms:read_sensitive` (owner, admin; overridable per member) via
+  mutations that write an audit entry (`form_response.sensitive_read`,
+  `file.read`; ids and field names only, never values). Denied reads are not
+  logged. CSV export of sensitive columns needs the same permission and is off
+  by default.
+- **Files.** Private Convex storage; URLs only from audited, permission-checked
+  mutations. Upload URLs need a valid kiosk token or a live invitation token,
+  are rate limited (30 per 5 min per device; 10 per invitation), and
+  `registerUpload` enforces size and an allowed content type, deleting
+  violating bytes. A file can be attached once, only by the uploader (device or
+  invitation), only for a field of the matching kind. Every file has
+  `deleteAfter` (field `retentionDays`, default 90 days; unclaimed uploads 1 h);
+  `internal.files.purgeExpired` runs daily. Limits: content type is declared by
+  the uploader (not sniffed); never-registered uploads are not swept.
+- **ID scan** is read-and-discard by default; OCR output is only a suggestion
+  that the visitor must confirm. The OCR engine is a stub: when one is chosen,
+  review whether the image leaves the device.
+- **Face capture** is a plain photo, off per organization by default, requires
+  an earlier required consent field, and is hidden from kiosks immediately when
+  switched off. No face matching or recognition exists.
+- **Invitations.** Token = 256 random bits, only its SHA-256 stored; shown once.
+  Every failure (unknown, malformed, expired, cancelled, used, suspended org,
+  inactive site) returns the same `{status:"unavailable"}`. Single use. Global
+  public rate limit (120/min) protects the database; per-IP limits need the edge
+  (Vercel Firewall), a hardening (H1) item. The page sets `noindex` and
+  `no-referrer`. The raw link is passed to the notifications scheduler job once;
+  N1 redacts it after sending.
+
 ## Known gaps / backlog
 
 - Rate limiting for public endpoints (kiosk registration arrives in Phase 2,

@@ -23,7 +23,8 @@ registerRetentionCron(crons);
 // functions are not on this branch (a cron naming a missing function fails
 // typecheck and deploy). When each lands, uncomment its line:
 //
-// crons.daily("expired file cleanup", { hourUTC: 1, minuteUTC: 30 }, internal.files.purgeExpired, {}); // F1
+// crons.daily("retention purge", { hourUTC: 1, minuteUTC: 0 }, internal.retention.purgeExpired, {});   // P1
+crons.daily("expired file cleanup", { hourUTC: 1, minuteUTC: 30 }, internal.files.purgeExpired, {}); // F1
 // --- end wiring notes
 
 export default crons;
