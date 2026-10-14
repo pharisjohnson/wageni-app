@@ -6,7 +6,7 @@ import { DAY_MS } from "../lib/billing/subscription";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, query } from "./_generated/server";
-import { paymentMode, simulateOutcome } from "./billingPayhero";
+import { billingHealth, paymentMode, simulateOutcome } from "./billingPayhero";
 import { requirePlatformAdmin } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
 import { appError } from "./lib/errors";
@@ -258,6 +258,15 @@ export const platformUsage = query({
       }),
     );
     return { ...page, page: rows, month: monthKey(Date.now()) };
+  },
+});
+
+/** Platform operators: unsafe or incomplete billing configuration (names only, never secrets). */
+export const platformBillingHealth = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePlatformAdmin(ctx);
+    return billingHealth();
   },
 });
 

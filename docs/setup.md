@@ -98,6 +98,8 @@ Set in the **Convex dashboard** when you want to test or launch billing:
 | `PAYHERO_CHANNEL_ID` | Numeric id of your registered M-Pesa payment channel. |
 | `PAYHERO_CALLBACK_BASE` | The Convex `.convex.site` URL (https), where PayHero posts payment callbacks. |
 | `BILLING_ENFORCEMENT` | `on` enforces plan limits. Anything else (default) = full access. |
+| `BILLING_HASH_PEPPER` | Required in live mode: random secret, 16+ characters, keys the phone-number hashes. |
+| `ALLOW_DRY_RUN_BILLING` | `true` allows dry-run checkout while `BILLING_ENFORCEMENT=on`. Development only, never in production. |
 | `ALLOW_BILLING_SIMULATION` | `true` shows dry-run "Simulate" buttons. Development only, never in production. |
 
 Prices and the trial length are set in `lib/billing/pricing.ts` (unset = checkout disabled). Full checklist: `docs/billing.md`.

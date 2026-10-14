@@ -229,3 +229,24 @@ describe("PayHero adapter (fetch mocked)", () => {
     expect(parseCallbackHint("x")).toEqual({});
   });
 });
+
+describe("H2: status API amount handling", () => {
+  const verifyWith = async (body: Record<string, unknown>) => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+    return createPayheroProvider({ authToken: "t", channelId: 1 }, fetchImpl).verify({ reference: "R" });
+  };
+  test("a numeric-string amount is still compared (never silently skipped)", async () => {
+    expect((await verifyWith({ status: "SUCCESS", reference: "R", amount: "1000" })).amountKes).toBe(1000);
+    expect((await verifyWith({ status: "SUCCESS", reference: "R", amount: "abc" })).amountKes).toBeUndefined();
+  });
+  test("an amount that differs from what we asked for is a mismatch, higher or lower", () => {
+    const e = { amountKes: 1000, payheroReference: "R", checkoutRequestId: "c" };
+    expect(evaluateVerification(e, { state: "success", reference: "R", amountKes: 999 })).toBe("mismatch");
+    expect(evaluateVerification(e, { state: "success", reference: "R", amountKes: 1001 })).toBe("mismatch");
+    expect(evaluateVerification(e, { state: "success", reference: "R", amountKes: 1000 })).toBe("credit");
+  });
+  test("a conflicting CheckoutRequestID is a mismatch even when the reference matches", () => {
+    const e = { amountKes: 1000, payheroReference: "R", checkoutRequestId: "c" };
+    expect(evaluateVerification(e, { state: "success", reference: "R", checkoutRequestId: "other" })).toBe("mismatch");
+  });
+});

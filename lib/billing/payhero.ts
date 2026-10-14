@@ -35,6 +35,12 @@ async function request(fetchImpl: Fetch, url: string, init: RequestInit): Promis
   }
 }
 
+/** A non-negative finite number, also accepted from a numeric string; anything else is "not reported". */
+function toAmount(v: unknown): number | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d{1,9}(\.\d{1,2})?$/.test(v.trim()) ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 const str = (v: unknown) => (typeof v === "string" && v.length > 0 && v.length <= 200 ? v : undefined);
 
 export function createPayheroProvider(
@@ -80,7 +86,7 @@ export function createPayheroProvider(
       const status = typeof json.status === "string" ? json.status.toUpperCase() : "";
       const state = status === "SUCCESS" ? "success" : status === "FAILED" ? "failed" : status === "QUEUED" ? "pending" : "unknown";
       const code = str(json.provider_reference)?.toUpperCase();
-      const amount = typeof json.amount === "number" ? json.amount : undefined;
+      const amount = toAmount(json.amount);
       return {
         state,
         reference: str(json.reference),

@@ -561,7 +561,9 @@ export default defineSchema({
     .index("by_org_created", ["organizationId", "createdAt"])
     .index("by_token_hash", ["callbackTokenHash"])
     .index("by_status_created", ["status", "createdAt"])
-    .index("by_phone_created", ["phoneHash", "createdAt"]),
+    .index("by_phone_created", ["phoneHash", "createdAt"])
+    .index("by_reference", ["payheroReference"])
+    .index("by_receipt", ["mpesaReceipt"]),
 
   // Monthly counters bumped by the mutation paths (never by scanning).
   usageCounters: defineTable({
