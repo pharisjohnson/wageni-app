@@ -4,8 +4,9 @@ import { internalMutation } from "./_generated/server";
 
 /**
  * Per-IP counters (`ip:<scope>:<hash>`) add one `publicRateLimits` row per
- * client and scope. A row whose window ended more than an hour ago can never
- * block anyone again (windows are at most 10 minutes), so it is deleted.
+ * client and scope. A row whose window began more than 26 hours ago can never
+ * block anyone again (the longest window is the 24 hour walk-in budget), so it
+ * is deleted.
  * Bounded per run; a full batch schedules another run.
  */
 const STALE_MS = 26 * 60 * 60 * 1000; // longest window is the 24 hour walk-in budget (H1)

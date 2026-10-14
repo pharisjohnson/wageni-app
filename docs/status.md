@@ -136,6 +136,59 @@ Operational notes: set `INVITE_PROXY_SECRET` (Next env and Convex, same value) a
 
 Still limited: per-IP limiting covers the invitation functions only (kiosk calls are per device); staff forms cannot hold files and clock-ins recorded on someone's behalf skip the form; verification does not validate that a file is well formed; none of the new browser screens (appointment form step, staff form at the kiosk and on Attendance, staff answers on the person page, invite page through the proxy) has been exercised in a browser; the Convex action and scheduler paths have only run under `convex-test`.
 
+## Hardening and release readiness, Phase 8 (H1)
+
+| Area | Status |
+| --- | --- |
+| Adversarial review of every unauthenticated entry point and the tenant boundary; inventory table in `docs/security.md` | Done (internal; not an independent pen test) |
+| Kiosk check-out: per-visit lockout after 5 wrong digit attempts, 24 h badge expiry, CSPRNG badge codes | Done, tested |
+| Escalating device locks (5 to 60 min) for lookups; per-device PIN-failure budget so one tablet cannot lock out staff at scale | Done, tested |
+| Walk-in budgets: 250/day/device, 3/day/phone/organization, friendly errors | Done, tested |
+| `getPublicBySlug` minimal, validated and re-checked on output; page-size caps on authenticated lists | Done, tested |
+| Security headers and CSP (`next.config.ts`, `lib/security/headers.ts`), `proxy.ts` matchers reviewed, `/api/health` | Done; headers verified in a production build with Playwright; **CSP not verified against live Clerk** |
+| Structured PII-free logging (`convex/lib/log.ts`), alert list, Sentry/log-drain hook points | Done (helper and events); no vendor installed; alerts not created |
+| Tenant data export and visitor erasure (`convex/dataRights.ts`), backup/restore, data lifecycle, DPA procedure | Done in code and docs; **restore drill not run**, no UI |
+| `docs/deployment.md`: environments, variables, Clerk/Convex/Vercel setup, migration and rollback, smoke test, runbook, checklist | Done |
+| CI: typegen step (without it typecheck fails on a clean checkout), split jobs, caches, least-privilege permissions, `pnpm audit` informational | Done; **never run on GitHub** (same commands run locally) |
+| Dependency audit | One high finding (`braces`, dev tooling, no patched release exists); see `docs/deployment.md` |
+| Secrets scan of the working tree and all git history | Clean (key, token and private-key patterns; no `.env*` ever committed except `.env.example`) |
+| Tests added: `tests/convex/{hardening,dataRights}.test.ts`, `tests/unit/{security-headers,log}.test.ts`, `tests/e2e/security.spec.ts` | Passing |
+
+### What is verified and what is not
+
+| Area | Verified how | Not verified |
+| --- | --- | --- |
+| Tenant isolation, permissions, site access, kiosk flows, forms, files, retention, notifications, reports | 492 Vitest tests (Convex functions run in-memory with `convex-test`) | Against a real Convex deployment (scheduler, actions, storage, cron timing behave differently from the test double) |
+| Typecheck, lint, production build | Run locally and clean (one pre-existing lint warning in the forms builder) | GitHub Actions run |
+| Public pages, headers, health, public routes stay public, invite API refuses bad calls | Playwright against a production build, desktop/tablet/mobile (security specs pass) | Behaviour with real Clerk keys |
+| Pricing page e2e (`public.spec.ts`, `navigation.spec.ts`: "pricing page lists plans", "pricing links back to home and to sign-up") | **Failing since the B1 merge** (strict-mode match on "Starter"; link text "Start free trial" no longer exists). Not touched by H1: the page is billing-owned | |
+| Sign-in, onboarding, every signed-in screen, kiosk screens with a paired device, invite page through the proxy | Backend logic by tests; UI by reading and typecheck | **Never exercised in a browser** (no Clerk or Convex credentials were available) |
+| CSP with Clerk, Turnstile, Convex websockets, camera | Policy built and unit-tested | A browser against real services (do the report-only rollout in `docs/deployment.md`) |
+| Notifications and receipts | Delivery logic with a fake channel; webhook signature code | Real Resend, Africa's Talking, WhatsApp or provider callbacks |
+| File content verification | Magic-byte logic and the action under `convex-test` | Real storage blobs; malware scanning does not exist |
+| Backup and restore | Procedure written from the CLI's documented behaviour | A drill |
+| Alerts and uptime monitoring | Events and endpoints exist | Nothing is configured in any monitoring service |
+| Billing | See the B2 follow-up below | |
+
+### Pre-launch blockers
+
+1. Run the app against a real Convex deployment and Clerk instance and walk the smoke
+   test in `docs/deployment.md` section 7 (nothing signed-in has been seen in a browser).
+2. Roll the CSP out in report-only on a preview with real Clerk keys, fix violations,
+   then enforce.
+3. Fix the two failing pricing e2e tests (or the pricing page), then get CI green on
+   GitHub and make it required.
+4. Set production variables and secrets (`INVITE_PROXY_SECRET`, `APP_BASE_URL`,
+   `CLERK_JWT_ISSUER_DOMAIN`, ...), create the Vercel Firewall rules, turn on Convex
+   backups and run the restore drill.
+5. Create the alerts in `docs/deployment.md` section 8 and test-fire one.
+6. Billing review after PayHero lands (checks listed in the H1 report and in
+   `docs/billing.md`), including end-to-end payment test and webhook failure handling.
+7. Independent penetration test, a Data Protection Impact Assessment and ODPC
+   registration (legal); privacy notices that state retention and backup delay.
+8. Decide on the open items in `docs/security.md` (Known gaps), notably real file
+   scanning, a UI for export/erasure and organization deletion.
+
 ## Needs your credentials
 
 - **Convex**: run `pnpm convex:dev` (creates the deployment and real codegen).
@@ -146,7 +199,7 @@ Still limited: per-IP limiting covers the invitation functions only (kiosk calls
 ## Not started (by phase)
 
 4. Invitations, form builder (versioned), approval/notification policies
-8. Hardening, monitoring, backups, deployment docs, dedicated deployments
+8. Dedicated per-customer deployments (hardening, monitoring, backups and deployment docs: see H1 above)
 
 ## Manual checks (signed-in layout, not automatable without Clerk/Convex credentials)
 

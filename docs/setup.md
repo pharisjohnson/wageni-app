@@ -97,6 +97,12 @@ organization has every feature. Set in the **Convex dashboard** when you want to
 
 Full checklist: `docs/billing.md`.
 
+## Deploying
+
+Production setup (Vercel, Convex production deployment, Clerk production instance,
+variables per environment, backups, runbook, launch checklist) is in
+`docs/deployment.md`.
+
 ## Optional
 
 **Platform operator.** After signing in once:
