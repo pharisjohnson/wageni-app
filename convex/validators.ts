@@ -185,4 +185,14 @@ export const vUsageKey = v.union(
   v.literal("files"),
   v.literal("fileBytes"),
 );
+export const vPlanKey = v.union(v.literal("business"), v.literal("enterprise"));
+export const vBillingPeriod = v.union(v.literal("monthly"), v.literal("annual"));
+export const vPaymentStatus = v.union(
+  v.literal("pending"),
+  v.literal("success"),
+  v.literal("failed"),
+  v.literal("timed_out"),
+  v.literal("cancelled"),
+);
+export const vSubscriptionSource = v.union(v.literal("payment"), v.literal("trial"), v.literal("manual"));
 // --- end B1

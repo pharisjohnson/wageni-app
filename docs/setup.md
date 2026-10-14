@@ -87,15 +87,20 @@ credentials, a path, query or fragment is ignored and the link stays a path.
 
 ## 6. Billing (optional, Phase 7)
 
-Plans use Clerk Billing for users. Nothing is required to develop: with `BILLING_ENFORCEMENT` unset every
-organization has every feature. Set in the **Convex dashboard** when you want to test or launch billing:
+Paid plans use PayHero (M-Pesa STK push, KES). Nothing is required to develop: with `BILLING_ENFORCEMENT` unset every
+organization has every feature, and without `PAYHERO_MODE=live` payments run in **dry-run** (nothing is sent to PayHero).
+Set in the **Convex dashboard** when you want to test or launch billing:
 
 | Variable | Purpose |
 | --- | --- |
-| `CLERK_WEBHOOK_SECRET` | `whsec_...` signing secret of the Clerk webhook to `<convex site url>/webhooks/clerk-billing`. Unset = endpoint off (404). |
+| `PAYHERO_MODE` | `live` sends real STK pushes. Unset (default) = dry-run. |
+| `PAYHERO_AUTH_TOKEN` | Basic authorization token from PayHero's dashboard -> API Keys (with or without the `Basic ` prefix). |
+| `PAYHERO_CHANNEL_ID` | Numeric id of your registered M-Pesa payment channel. |
+| `PAYHERO_CALLBACK_BASE` | The Convex `.convex.site` URL (https), where PayHero posts payment callbacks. |
 | `BILLING_ENFORCEMENT` | `on` enforces plan limits. Anything else (default) = full access. |
+| `ALLOW_BILLING_SIMULATION` | `true` shows dry-run "Simulate" buttons. Development only, never in production. |
 
-Full checklist: `docs/billing.md`.
+Prices and the trial length are set in `lib/billing/pricing.ts` (unset = checkout disabled). Full checklist: `docs/billing.md`.
 
 ## Deploying
 

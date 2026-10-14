@@ -1,13 +1,15 @@
 "use client";
 
-import { PricingTable, useClerk } from "@clerk/nextjs";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { ReactNode } from "react";
+import { CheckoutPanel } from "@/components/billing/checkout";
+import { toastError } from "@/components/billing/plan-toast";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/convex/_generated/api";
 import {
   FEATURE_LABELS,
@@ -16,6 +18,7 @@ import {
   TIER_LABELS,
   type Limit,
 } from "@/lib/billing/entitlements";
+import { formatKes } from "@/lib/billing/pricing";
 import { useActiveOrg } from "@/lib/org/active-org";
 
 const date = (ms: number | null) =>
@@ -57,9 +60,17 @@ function Meter({ label, used, limit, format = String }: { label: string; used: n
 const STATUS_TEXT: Record<string, string> = {
   active: "Active",
   trialing: "Free trial",
-  past_due: "Payment overdue",
+  past_due: "Renewal overdue",
   canceled: "Canceled",
   ended: "Ended",
+};
+
+const PAYMENT_STATUS_TEXT: Record<string, string> = {
+  pending: "Waiting",
+  success: "Paid",
+  failed: "Failed",
+  timed_out: "Timed out",
+  cancelled: "Cancelled",
 };
 
 function Note({ children }: { children: ReactNode }) {
@@ -68,7 +79,7 @@ function Note({ children }: { children: ReactNode }) {
 
 export default function BillingPage() {
   const { organizationId, can } = useActiveOrg();
-  const { openUserProfile } = useClerk();
+  const startTrial = useMutation(api.billing.startTrial);
   const allowed = can("billing:manage");
   const data = useQuery(api.billing.overview, allowed ? { organizationId } : "skip");
 
@@ -80,7 +91,11 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Billing" description="Your organization's plan, limits and usage." />
+      <PageHeader
+        title="Billing"
+        description="Your organization's plan, limits and usage."
+        back={{ href: "/app", label: "Back to dashboard" }}
+      />
 
       {!data.enforced && (
         <p className="rounded-xl border bg-muted/40 p-4 text-sm" role="status">
@@ -100,16 +115,14 @@ export default function BillingPage() {
           </div>
           <CardDescription>
             {sub.isFreeTrial && sub.trialEndsAt
-              ? `Your free trial ends on ${date(sub.trialEndsAt)}. After that the plan is charged to the card on file, or you return to Starter if there is none.`
-              : sub.status === "canceled" && sub.accessEndsAt
-                ? `Canceled. You keep this plan until ${date(sub.accessEndsAt)}, then move to Starter. Your data is never deleted.`
-                : sub.status === "past_due" && sub.accessEndsAt
-                  ? `The last payment failed. Update your card by ${date(sub.accessEndsAt)} to keep this plan; otherwise you move to Starter. Your data is never deleted.`
-                  : sub.currentPeriodEnd
-                    ? `Current period ends ${date(sub.currentPeriodEnd)}.`
-                    : data.tier === "free"
-                      ? "The free Starter plan."
-                      : ""}
+              ? `Your free trial ends on ${date(sub.trialEndsAt)}. After that you return to Starter unless you pay.`
+              : sub.status === "past_due" && sub.accessEndsAt
+                ? `Your plan period ended. You keep it until ${date(sub.accessEndsAt)}; pay again before then or you move to Starter. Your data is never deleted.`
+                : sub.status === "active" && sub.currentPeriodEnd
+                  ? `${sub.source === "manual" ? "Plan granted until" : "Paid until"} ${date(sub.currentPeriodEnd)}. M-Pesa does not renew automatically: pay again before then.`
+                  : data.tier === "free"
+                    ? "The free Starter plan."
+                    : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -143,36 +156,74 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
-      {data.isSubscriptionHolder || !data.enforced ? (
+      {data.trial.available && (
         <Card>
           <CardHeader>
-            <CardTitle>Change plan</CardTitle>
+            <CardTitle>Start your free trial</CardTitle>
             <CardDescription>
-              Plans are tied to your own account and apply to every organization you own. Checkout opens in this page.
+              Try Business free for {data.trial.days} days, no payment needed. It ends by itself and you return to Starter unless
+              you pay. One trial per organization.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <PricingTable for="user" />
-            <div className="flex flex-wrap items-center gap-3">
-              <Button variant="outline" onClick={() => openUserProfile()}>
-                Open my account (payment methods and invoices)
-              </Button>
-              <span className="text-xs text-muted-foreground">Look for the Billing tab once billing is enabled.</span>
-            </div>
+          <CardContent>
+            <Button onClick={() => startTrial({ organizationId }).catch(toastError)}>Start {data.trial.days}-day trial</Button>
           </CardContent>
         </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Who manages the plan</CardTitle>
-            <CardDescription>
-              This organization&apos;s plan belongs to its owner&apos;s account
-              {data.ownerName ? ` (${data.ownerName})` : ""}. Only the owner can upgrade, downgrade or update the
-              payment method, from their own Billing page.
-            </CardDescription>
-          </CardHeader>
-        </Card>
       )}
+
+      <CheckoutPanel
+        organizationId={organizationId}
+        subscription={{
+          planKey: sub.planKey,
+          status: sub.status,
+          currentPeriodEnd: sub.currentPeriodEnd,
+        }}
+        simulationAllowed={data.payments.simulationAllowed}
+        paymentsMode={data.payments.mode}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Payment history</CardTitle>
+          <CardDescription>Your last payments with their M-Pesa receipt numbers.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {data.recentPayments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No payments yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>M-Pesa code</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.recentPayments.map((p) => (
+                    <TableRow key={p._id}>
+                      <TableCell>{date(p.createdAt)}</TableCell>
+                      <TableCell>
+                        {TIER_LABELS[p.planKey]} ({p.period})
+                      </TableCell>
+                      <TableCell>{formatKes(p.amountKes)}</TableCell>
+                      <TableCell>
+                        <Badge variant={p.status === "success" ? "secondary" : p.status === "pending" ? "outline" : "destructive"}>
+                          {PAYMENT_STATUS_TEXT[p.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono">{p.mpesaReceipt ?? "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -180,13 +231,16 @@ export default function BillingPage() {
         </CardHeader>
         <CardContent>
           <ul className="list-disc space-y-1 pl-5">
-            <Note>Prices and payments are in US dollars (USD) only.</Note>
-            <Note>Payment is by credit or debit card, processed by Stripe. M-Pesa and other local methods are not available.</Note>
+            <Note>Prices and payments are in Kenyan shillings (KES), paid with M-Pesa through PayHero.</Note>
             <Note>
-              Cards that require extra verification (3D Secure) may be declined. If a payment fails, try another card or
-              contact us.
+              Each payment covers one period (30 days monthly, 365 days annual). There is no automatic renewal: you get
+              reminders 7, 3 and 1 days before the period ends. Paying early adds to the end of your current period.
             </Note>
-            <Note>Tax or VAT is not added at checkout, and refunds are handled by contacting us.</Note>
+            <Note>Cards and other payment methods are not supported here. Contact us for invoiced or Enterprise arrangements.</Note>
+            <Note>
+              This page is not a tax invoice. Your M-Pesa confirmation message and the receipt code above are your proof of payment.
+              Refunds are handled by contacting us.
+            </Note>
             <Note>Downgrading never deletes your data. Anything over the new limits stays viewable; you just cannot add more.</Note>
           </ul>
         </CardContent>

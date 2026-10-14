@@ -1,86 +1,124 @@
-# Billing: plans, entitlements and Clerk Billing (Phase 7)
+# Billing: plans, entitlements and PayHero M-Pesa (Phase 7)
 
-Operator checklist. Nothing here has been exercised against a real Clerk or Stripe account: code and tests were written from Clerk's published docs and the `@clerk/backend` TypeScript types, then covered by `convex-test` with locally generated Svix signatures. Follow the verification section at the end before charging anyone.
+Operator checklist. **No real PayHero account, STK push or payment has been used** to build or test this: the code was written from PayHero's published documentation (https://docs.payhero.co.ke) and covered by tests that mock `fetch`. Response fields beyond the documented ones are unverified. Work through "Go live" and "Test it" below before charging anyone.
+
+Clerk Billing was evaluated and removed: it is USD/Stripe only, has no M-Pesa and fails 3D Secure payments. PayHero is now the single payment source.
 
 ## How it works
 
-- Wageni tenants are Convex `organizations` + `memberships`, **not** Clerk Organizations. Billing therefore uses **Clerk Billing for users**: the subscription belongs to the Clerk user who **owns** the Wageni organization (the earliest active `owner` membership). An organization's plan is its owner's active subscription; one owner subscription covers every organization they own.
-- Clerk sends `subscriptionItem.*` webhooks to Convex (`POST <convex site url>/webhooks/clerk-billing`). They are stored in the `subscriptions` table (one row per Clerk subscription item, Clerk user id and plan facts only, no names or emails).
-- `convex/lib/entitlements.ts` resolves owner -> subscription -> tier on every restricted call. The tier tables (features, numeric limits, slug mapping) live in `lib/billing/entitlements.ts` and feed the marketing copy (`lib/plans.ts`), the billing page and enforcement.
+- Wageni tenants are Convex `organizations`. **A subscription belongs to the organization** (`subscriptions`, one row per organization). It is created or extended by a verified M-Pesa payment, by a free trial, or by a platform operator's manual grant.
+- `convex/lib/entitlements.ts` resolves organization -> subscription -> tier on every restricted call (`requireFeature`, `requireWithinLimit`). Tiers, features and limits live in `lib/billing/entitlements.ts` and also feed the marketing copy and the billing page.
 - **Enforcement is OFF by default.** Until `BILLING_ENFORCEMENT=on`, every organization has full Enterprise entitlements. Demo organizations (`isDemo`) always do.
+- Access is **derived from time**, not from the cron: an active period grants its plan; after it ends the plan stays for a 7-day grace period (`past_due`); then the organization is on Starter. The lifecycle cron only tidies the stored status and sends reminders.
+- Downgrades never delete data. Over-limit organizations keep what they have and cannot create more; extra sites are read-only.
 
 ## Tiers
 
 | | Starter (`free`) | Business | Enterprise |
 | --- | --- | --- | --- |
-| Clerk plan slug | none / default free plan | `business` | `enterprise` |
 | Features | none | `multi_site`, `custom_forms`, `notifications`, `audit_log` | all six, adds `webhooks_integrations`, `custom_retention` |
 | Sites | 1 | 10 | unlimited |
 | Gates | 3 | 50 | unlimited |
 | Staff (active members) | 10 | 200 | unlimited |
 | Custom forms | 0 | 25 | unlimited |
-| Visits / month | 200 (metered, never blocks a check-in) | 5000 (same) | unlimited |
-| Live messages / month | 0 (dry-run only) | 2000 | unlimited |
+| Visits per month | 200 (metered, never blocks a visitor) | 5,000 | unlimited |
+| Live messages per month | 0 (dry-run only) | 2,000 | unlimited |
 
-These numbers are product decisions: edit `TIER_LIMITS` in `lib/billing/entitlements.ts`. Nothing else needs to change.
+These numbers are product decisions in `TIER_LIMITS` (`lib/billing/entitlements.ts`).
 
-Downgrade rules: canceled plans last until the paid period ends; past-due plans keep access for **7 days** (`PAST_DUE_GRACE_MS`) after Clerk reports `past_due_at`; ended plans drop to Starter at once. Downgrades never delete data. Over-limit organizations keep everything readable; they cannot create more, extra sites (beyond the oldest N active) and their gates become read-only (deactivating them is allowed), existing published forms keep being served, and nobody is ever refused at the gate because of billing.
+## Prices and trial (you must set these)
 
-## Operator checklist (Clerk Dashboard)
+Open `lib/billing/pricing.ts`:
 
-Do the development instance first, then repeat on production.
+```ts
+export const PLAN_PRICES_KES = {
+  business:   { monthly: null, annual: null },
+  enterprise: { monthly: null, annual: null },
+};
+export const BUSINESS_TRIAL_DAYS: number | null = null;
+```
 
-1. **Enable Billing for users.** Dashboard -> Configure -> Billing -> Settings, or `npx clerk@latest enable billing --for users` (the `--for users` flag is from Clerk's overview page; confirm it with `npx clerk@latest enable billing --help`).
-2. **Create the features** (Billing -> Plans for Users -> Features). Use these exact slugs (the slug is derived from the name; check it in the feature's detail, change it if needed):
-   `multi_site`, `custom_forms`, `notifications`, `audit_log`, `webhooks_integrations`, `custom_retention`.
-3. **Create the plans** (Plans for Users -> Add Plan):
-   - `business`: publicly available; features `multi_site`, `custom_forms`, `notifications`, `audit_log`; set the USD price (monthly, optionally annual).
-   - `enterprise`: **not publicly available** (sales-assisted: assign it to the customer from the dashboard); all six features. Webhooks never include a plan's feature list in Clerk's typed payload, so the plan **slug** (`business` / `enterprise`) is what Wageni maps. If you name plans differently, edit `PLAN_SLUG_TIER` in `lib/billing/entitlements.ts`.
-   - Starter needs no paid plan: leave the Clerk default free plan (slug `free_user`) or none at all; no row means Starter.
-4. **Free trial for Business**: Business plan -> enable free trial -> set days (1 to 365). Decide whether a payment method is required to start a trial (Billing Settings; Clerk's default is that one **is** required; turning it off means trials end silently on Starter). A user gets one trial per application and needs a verified primary email. Optionally set `BUSINESS_TRIAL_DAYS` in `lib/plans.ts` so marketing copy shows the number; it is display-only.
-5. **Stripe**: development instances use Clerk's shared Stripe sandbox. For production connect your own Stripe account (Billing -> Settings). Dev and prod Stripe accounts are separate; a development Stripe account cannot be used in production.
-6. **Webhook endpoint** (Webhooks -> Add Endpoint):
-   - URL: `https://<your-deployment>.convex.site/webhooks/clerk-billing` (the Convex **site** URL, not `.convex.cloud`).
-   - Subscribe to: `subscriptionItem.created` (if offered), `subscriptionItem.active`, `subscriptionItem.updated`, `subscriptionItem.canceled`, `subscriptionItem.upcoming`, `subscriptionItem.ended`, `subscriptionItem.abandoned`, `subscriptionItem.incomplete`, `subscriptionItem.pastDue`, `subscriptionItem.freeTrialEnding`. Other families (`subscription.*`, `paymentAttempt.*`) are acknowledged and ignored, so subscribing is harmless but unnecessary.
-   - Copy the **Signing Secret** (`whsec_...`).
-7. **Convex dashboard -> Settings -> Environment Variables** (per deployment): `CLERK_WEBHOOK_SECRET=<signing secret>`; when ready to charge, `BILLING_ENFORCEMENT=on`. Unset `CLERK_WEBHOOK_SECRET` and the webhook route returns 404.
-8. **Existing customers**: before turning enforcement on, give every owner who should keep paid features a subscription (or put demo organizations on `isDemo`). Owners without one become Starter: extra sites become read-only, notifications become dry-run, forms/audit are blocked. Check `/platform/usage` first; it shows each organization's resolved plan.
+- Prices are whole KES. **`null` means not set**: checkout for that plan and period is disabled and every page says "KES price to be announced". Nothing is invented.
+- The amount charged is read from this file on the server when a payment is created and stored on the payment row. The browser and PayHero's callback never choose the amount.
+- `BUSINESS_TRIAL_DAYS` (null = no trial): the organization owner (`billing:manage`) can start a Business trial without paying, **once per organization**. It is a `trialing` subscription row; it ends by itself (the cron marks it `ended`, and access stops at the trial end regardless) and the organization returns to Starter unless it pays.
+- Period length is fixed: **monthly = 30 days, annual = 365 days**.
 
-## Testing
+## Operator checklist: go live
 
-- Development instance: sign in, open `/app/billing`, pick Business in the pricing table, pay with Stripe test card `4242 4242 4242 4242` (any future date, any CVC). The Clerk development gateway needs no Stripe account. Test failure paths with Stripe's decline cards from <https://docs.stripe.com/testing>.
-- Watch the Clerk Dashboard -> Webhooks -> endpoint -> Message attempts (200 = applied or acknowledged; 401 = signature/timestamp problem; 404 = `CLERK_WEBHOOK_SECRET` not set in Convex). Use "Replay"/"Resend" to exercise idempotency: a repeated `svix-id` is a no-op.
-- Locally you can sign a request yourself with `signSvix` from `lib/billing/svix.ts` (see `tests/convex/billing.test.ts`).
-- With `BILLING_ENFORCEMENT=on`, an owner on Starter should see "Upgrade" prompts: second site, custom forms, audit log, custom retention; messages stay dry-run.
+1. **PayHero account.** Create one at https://payhero.co.ke and complete their onboarding.
+2. **API credentials.** Dashboard -> **API Keys** -> Add new API Key. Copy the ready-made **Basic Authorization token** (with or without the `Basic ` prefix; both work).
+3. **Payment channel.** Register your M-Pesa paybill or till as a payment channel in PayHero and note its numeric **channel id**.
+4. **Convex environment variables** (Convex dashboard -> Settings -> Environment Variables, on the production deployment):
 
-## Known limits (tell customers)
+   | Variable | Value |
+   | --- | --- |
+   | `PAYHERO_MODE` | `live`. Unset or anything else = **dry-run** (no real requests). |
+   | `PAYHERO_AUTH_TOKEN` | The Basic authorization token from step 2. |
+   | `PAYHERO_CHANNEL_ID` | The integer channel id from step 3. |
+   | `PAYHERO_CALLBACK_BASE` | Your Convex **HTTP actions** URL, the `.convex.site` one (not `.convex.cloud`), e.g. `https://happy-otter-123.convex.site`. Must be `https`. |
+   | `BILLING_ENFORCEMENT` | `on` when you want limits enforced. |
+   | `APP_BASE_URL` | Public app URL, so reminder emails link to `/app/billing`. |
+   | `BILLING_HASH_PEPPER` | Optional secret for hashing phone numbers; defaults to `PAYHERO_AUTH_TOKEN`. Do not change it after launch (it resets the per-number retry history). |
+   | `ALLOW_BILLING_SIMULATION` | **Never set in production.** Dev only, see below. |
 
-- **3D Secure / SCA payments fail (launch risk).** Clerk Billing "does not currently support payment methods that require additional authentication, such as 3D Secure". Many Kenyan and other cards require it, and their issuers will decline the checkout. Until Clerk supports it, plan on invoicing such customers by hand (assign the plan from the Clerk Dashboard) or reconsider the provider before launch. Test with real local cards in production before announcing.
-- USD only. No M-Pesa or other local methods; cards via Stripe only.
-- No tax or VAT calculation. No refunds in Clerk Billing (refund in Stripe directly; it will not update the Clerk subscription).
-- Clerk is **not** the Merchant of Record: you are responsible for tax registration and invoicing law.
-- Checkout is web only. Not available in Brazil, India, Malaysia, Mexico, Singapore, Thailand.
-- Plans and subscriptions created in Clerk do not sync to Stripe's own catalogue.
-- Clerk's billing APIs are labelled beta/experimental; pin `@clerk/nextjs` and review changelogs before upgrading.
+   With `PAYHERO_MODE=live` and any of the first four missing or malformed, checkout refuses with "Payments are not set up yet" and nothing is sent.
+5. **Set prices** in `lib/billing/pricing.ts` and deploy.
+6. Make sure notifications are configured (see `docs/setup.md`): receipts and reminders are sent through the notification system (email by default).
 
-## Webhook handling reference
+## Test it
 
-Verified against `@clerk/backend` 3.23 types (`BillingSubscriptionItemWebhookEventJSON`) and Clerk's docs; **not** against live deliveries.
+1. **Dry-run first** (default; leave `PAYHERO_MODE` unset on a dev deployment). Checkout records a payment and shows the "Check your phone" screen, but nothing is sent. Settle it either from the CLI:
+   `npx convex run billingPayhero:simulate '{"paymentId":"<id>","outcome":"success"}'`
+   or, on a dev deployment only, set `ALLOW_BILLING_SIMULATION=true` and use the Simulate buttons on the billing page. Simulation refuses payments created by the live provider and refuses to run when `PAYHERO_MODE=live`.
+2. **Then one real payment of KES 1 to 10.** Temporarily put a small price (for example 10) in `pricing.ts` on a staging deployment, switch to `PAYHERO_MODE=live`, and pay from `/app/billing` with your own number. Confirm: the STK prompt arrives; after the PIN the page flips to "Payment received" with the M-Pesa code; the subscription end date moved by 30 days; a receipt email arrived; the PayHero dashboard shows the transaction. Then test a cancelled prompt and a wrong PIN, and test with the callback blocked (see reconciliation) to see the cron settle it within about a minute.
+3. Revert the test price before launch.
 
-- Envelope: `type`, `object: "event"`, `timestamp` (ms), `data`.
-- Fields used from `data`: `id` (subscription item id), `status` (`active`, `canceled`, `ended`, `expired`, `past_due`, `upcoming`, `abandoned`, `incomplete`), `period_end`, `canceled_at`, `past_due_at`, `plan.slug`, `payer.user_id`, and `is_free_trial` (documented by Clerk for `subscriptionItem.active`; absent from the SDK type, so read defensively).
-- Mapping: `active` -> `active` (or `trialing` when `is_free_trial`), `past_due` -> `past_due`, `canceled` -> `canceled`, `ended`/`expired` -> `ended`; `upcoming`/`abandoned`/`incomplete` create no entitlement (an existing row is set to `ended`). Organization payers (no `payer.user_id`) are ignored.
-- Verification: Svix scheme (`svix-id`, `svix-timestamp`, `svix-signature` `v1,<base64>`; HMAC-SHA256 over `id.timestamp.body` with the base64-decoded secret after `whsec_`), constant-time compare, 5 minute replay window, 256 KB body cap, generic 4xx responses. Idempotent on `svix-id` (kept 7 days, swept daily). An event older than the stored row's last event timestamp is ignored.
-- The Clerk user id is matched to the Convex user via `users.tokenIdentifier` (`<issuer>|<clerk user id>`).
+## Payment flow and security design
 
-## Usage metering
+PayHero's callback carries **no signature or authentication**, so it cannot be trusted. The design treats it as a hint:
 
-`usageCounters` holds per organization, per UTC month: `visits`, `notifications` (live sends), `files`, `fileBytes` (uploaded). They are incremented in the mutation paths (`convex/lib/usage.ts`), never by scanning. `/app/billing` shows them against limits; `/platform/usage` shows all organizations (platform admins only, counts and plan names only).
+1. `billing.startCheckout` (an action) checks the caller's `billing:manage` permission and limits, takes the amount from `pricing.ts`, and creates a `billingPayments` row (`pending`) with a random 256-bit **callback token** (only its SHA-256 is stored). It then calls PayHero `POST /api/v2/payments` with `callback_url = PAYHERO_CALLBACK_BASE/webhooks/payhero/<token>` and our `external_reference`.
+2. The **phone number is never stored**: it exists only in the action's memory. The row keeps its last four digits and an HMAC (used for per-number retry limits).
+3. When PayHero calls the callback URL, the route (`convex/http.ts`) caps the body at 8 KB, rejects malformed tokens, finds the payment by token hash, ignores a callback naming a different `ExternalReference`, and then **asks PayHero itself** (`GET /api/v2/transaction-status?reference=<stored reference>`, server to server, with our credentials). It credits only if the API says `SUCCESS` and the returned reference, `CheckoutRequestID` and (if present) amount match what we stored. The plan and amount come from our row. Every well-formed request gets the same `200 {"ok":true}` whatever it matched, so the endpoint reveals nothing. Tokens, phone numbers and callback bodies are never logged.
+4. Applying a payment is **idempotent**: a payment is credited once (`appliedAt`), so replays and duplicate callbacks change nothing. Status checks per payment are throttled (3 s) so a callback flood cannot hammer PayHero.
+5. **Reconciliation cron** (`billing payment reconcile`, every minute): pending payments older than 30 s are checked with PayHero (so a lost callback still resolves); those still unanswered after 10 minutes are marked `timed_out`. Timed-out and cancelled payments are still re-checked for 24 hours, so a customer who paid late is credited rather than left out of pocket.
+6. A verified success that does **not** match our record is not credited, marked `failed` (`verification_mismatch`) and written to the audit log for you to investigate in PayHero.
 
-## Verify before launch
+## Subscription arithmetic
 
-1. Real test-mode checkout end to end, then confirm a `subscriptions` row appears in the Convex dashboard and the organization's plan changes.
-2. Confirm the actual webhook payload (Webhooks -> Message attempts) contains `data.plan.slug`, `data.payer.user_id`, `data.period_end` and (on trials) `data.is_free_trial`; adjust `lib/billing/events.ts` if names differ.
-3. Confirm feature slugs and plan slugs match this document.
-4. Test a 3D Secure card (Stripe `4000 0027 6000 3184`) to see the failure users would see.
-5. Cancel, let a period end, and test a failed renewal (Stripe `4000 0000 0000 0341`) to see `past_due` and the 7 day grace.
+- First payment, or the plan had ended, or it was in the grace period, or it was a trial: the new period starts **now**.
+- Early renewal of the same plan: the new period starts at the **current end**, so days are never lost. Monthly -> annual works the same way.
+- Upgrade (Business -> Enterprise) while running: Enterprise starts **now**; the unused remainder of the old plan is **not credited** (no proration; the billing page warns before paying).
+- Downgrade (Enterprise -> Business) is refused while the higher plan is paid; it can be bought after the period ends.
+
+## Abuse protection
+
+PayHero blocks a phone for 24 h after more than 10 consecutive failed STK requests, and restricts the whole account for hours after more than 50 failures in 6 h. Our limits stay well below that (`PAYMENT_LIMITS` in `lib/billing/provider.ts`):
+
+- 1 pending payment per organization; 30 s cooldown between attempts; 6 attempts per organization per hour.
+- 3 attempts per phone number per hour (across organizations); a number with 5 failed/cancelled/timed-out attempts in a row within 24 h is blocked on our side until one succeeds or a day passes.
+- If 40 or more attempts failed account-wide in 6 hours, new checkouts pause for everyone.
+
+The UI shows friendly messages for each.
+
+## Lifecycle and notifications
+
+- Renewal reminders go to everyone who can manage billing (owners by default) **7, 3 and 1 days** before the period ends (only the tightest threshold reached is sent), with a link to `/app/billing` and a note that M-Pesa must be paid again (no auto-renew).
+- When a period ends: status `past_due` and a notice with the grace end date; after 7 days: `ended` and the organization is on Starter. Nothing is deleted.
+- Each successful payment sends a receipt (amount, M-Pesa code, new end date).
+- Manual grants get no reminders.
+- Crons: `billing payment reconcile` (1 min), `billing subscription lifecycle` (30 min).
+
+## Manual and invoiced customers
+
+A platform administrator can give an organization a plan until a date without payment: `/platform/usage` -> **Grant plan** (`platform.grantPlan({ organizationId, planKey, until, reason })`). It replaces the organization's current subscription row, requires a reason and is audit-logged. After the date the usual 7-day grace applies, then Starter.
+
+## Known limits (read before launch)
+
+- **KES only.** M-Pesa STK push only; **cards and other methods are not covered** by this integration.
+- **No automatic recurring M-Pesa.** PayHero offers no subscription or auto-debit product; every period is a new payment and customers are reminded.
+- **No tax invoicing from this system.** Receipts here are payment confirmations, not tax invoices. **Check your KRA / eTIMS (and VAT) obligations with an accountant** before charging customers.
+- **Refunds are done in PayHero**, manually; this system does not reverse a subscription when you refund (end it with a manual grant or contact engineering).
+- PayHero's status response is documented without an amount or M-Pesa code field; the code reads `provider_reference` for the code and an `amount` field if present, and shows the code only if it looks like an M-Pesa code (10 uppercase letters/digits). If PayHero returns these under other names, receipts show PayHero's reference instead; credit decisions are unaffected.
+- Not verified against a live account: request/response field names beyond those in PayHero's docs, behavior when the status API is queried before the transaction is registered (treated as "unknown" and retried), PayHero's retry behavior for callbacks.
+- Visits are metered but never blocked at the gate, whatever the plan.

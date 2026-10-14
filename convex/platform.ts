@@ -5,6 +5,7 @@ import { requirePlatformAdmin } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
 import { appError } from "./lib/errors";
 import { clampPagination } from "./lib/validate";
+import { vPlanKey } from "./validators";
 
 /**
  * Platform (SaaS operator) functions. These expose organization metadata
@@ -74,5 +75,58 @@ export const grantSuperAdmin = internalMutation({
     if (!user) throw appError("NOT_FOUND", "No user with that email has signed in yet.");
     await ctx.db.patch(user._id, { platformRole: "super_admin", updatedAt: Date.now() });
     return user._id;
+  },
+});
+
+const MAX_GRANT_MS = 5 * 366 * 24 * 60 * 60 * 1000;
+
+/**
+ * Give an organization a plan until a date without M-Pesa payment (manual or
+ * invoiced customers, sales-assisted Enterprise). Replaces any existing
+ * subscription row. Platform administrators only; always audit-logged with the
+ * reason. No reminders are sent for manual grants; after `until` the usual
+ * 7-day grace applies, then the organization is on Starter (data is kept).
+ */
+export const grantPlan = mutation({
+  args: { organizationId: v.id("organizations"), planKey: vPlanKey, until: v.number(), reason: v.string() },
+  handler: async (ctx, { organizationId, planKey, until, reason }) => {
+    const admin = await requirePlatformAdmin(ctx);
+    const trimmed = reason.trim();
+    if (trimmed.length < 5 || trimmed.length > 500) throw appError("VALIDATION", "Provide a reason (5-500 characters).");
+    const now = Date.now();
+    if (!Number.isFinite(until) || until <= now || until > now + MAX_GRANT_MS) {
+      throw appError("VALIDATION", "Choose an end date in the future, at most five years away.");
+    }
+    const org = await ctx.db.get(organizationId);
+    if (!org) throw appError("NOT_FOUND");
+    const existing = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+      .unique();
+    const fields = {
+      planKey,
+      period: undefined,
+      status: "active" as const,
+      currentPeriodStart: now,
+      currentPeriodEnd: until,
+      source: "manual" as const,
+      updatedAt: now,
+    };
+    if (existing) await ctx.db.replace(existing._id, { organizationId, ...fields, trialEndsAt: existing.trialEndsAt, createdAt: existing.createdAt });
+    else await ctx.db.insert("subscriptions", { organizationId, ...fields, createdAt: now });
+    await writeAudit(ctx, {
+      organizationId,
+      actorUserId: admin._id,
+      action: "platform.plan_granted",
+      resourceType: "subscription",
+      resourceId: organizationId,
+      metadata: {
+        planKey,
+        until,
+        reason: trimmed,
+        previousPlan: existing?.planKey ?? null,
+        previousSource: existing?.source ?? null,
+      },
+    });
   },
 });

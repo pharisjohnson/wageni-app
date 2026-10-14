@@ -115,7 +115,7 @@ const FAQ = [
   },
   {
     q: "What does it cost?",
-    a: "Starter is free and Business starts with a free trial. Final prices are still being set, and early users will be asked for their feedback in return for preferred terms.",
+    a: "Starter is free. Paid plans are in Kenyan shillings (KES), paid with M-Pesa. Final prices are still being set, and early users will be asked for their feedback in return for preferred terms.",
   },
 ];
 
@@ -365,7 +365,7 @@ export default function HomePage() {
           Help shape it before launch
         </h2>
         <p className="text-muted-foreground">
-          We are working with a small group of first organizations. Early users get a free trial, a direct line
+          We are working with a small group of first organizations. Early users get preferred terms, a direct line
           to the team, and a say in what we build next.
         </p>
       </section>

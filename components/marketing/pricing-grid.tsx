@@ -30,7 +30,7 @@ export function PricingGrid() {
               href="/sign-up"
               className={buttonVariants({ variant: plan.highlighted ? "default" : "outline", className: "w-full" })}
             >
-              {plan.tier === "free" ? "Get started free" : plan.tier === "business" ? `Start: ${BUSINESS_TRIAL_LABEL.toLowerCase()}` : "Get started, then contact us"}
+              {plan.tier === "free" ? "Get started free" : plan.tier === "business" ? (BUSINESS_TRIAL_LABEL ? `Start: ${BUSINESS_TRIAL_LABEL.toLowerCase()}` : "Get started") : "Get started, then contact us"}
             </Link>
           </CardFooter>
         </Card>
