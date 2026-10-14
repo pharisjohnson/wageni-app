@@ -158,10 +158,10 @@ Still limited: per-IP limiting covers the invitation functions only (kiosk calls
 
 | Area | Verified how | Not verified |
 | --- | --- | --- |
-| Tenant isolation, permissions, site access, kiosk flows, forms, files, retention, notifications, reports | 492 Vitest tests (Convex functions run in-memory with `convex-test`) | Against a real Convex deployment (scheduler, actions, storage, cron timing behave differently from the test double) |
+| Tenant isolation, permissions, site access, kiosk flows, forms, files, retention, notifications, reports | 568 Vitest tests (Convex functions run in-memory with `convex-test`) | Against a real Convex deployment (scheduler, actions, storage, cron timing behave differently from the test double) |
 | Typecheck, lint, production build | Run locally and clean (one pre-existing lint warning in the forms builder) | GitHub Actions run |
 | Public pages, headers, health, public routes stay public, invite API refuses bad calls | Playwright against a production build, desktop/tablet/mobile (security specs pass) | Behaviour with real Clerk keys |
-| Pricing page e2e (`public.spec.ts`, `navigation.spec.ts`: "pricing page lists plans", "pricing links back to home and to sign-up") | **Failing since the B1 merge** (strict-mode match on "Starter"; link text "Start free trial" no longer exists). Not touched by H1: the page is billing-owned | |
+| Pricing page e2e (`public.spec.ts`, `navigation.spec.ts`) | Were failing on `main` since the B1 merge (selectors out of date with the page copy); selectors updated in H1, now passing | |
 | Sign-in, onboarding, every signed-in screen, kiosk screens with a paired device, invite page through the proxy | Backend logic by tests; UI by reading and typecheck | **Never exercised in a browser** (no Clerk or Convex credentials were available) |
 | CSP with Clerk, Turnstile, Convex websockets, camera | Policy built and unit-tested | A browser against real services (do the report-only rollout in `docs/deployment.md`) |
 | Notifications and receipts | Delivery logic with a fake channel; webhook signature code | Real Resend, Africa's Talking, WhatsApp or provider callbacks |
@@ -176,8 +176,7 @@ Still limited: per-IP limiting covers the invitation functions only (kiosk calls
    test in `docs/deployment.md` section 7 (nothing signed-in has been seen in a browser).
 2. Roll the CSP out in report-only on a preview with real Clerk keys, fix violations,
    then enforce.
-3. Fix the two failing pricing e2e tests (or the pricing page), then get CI green on
-   GitHub and make it required.
+3. Get CI green on GitHub and make it required (full local e2e: 58 pass, 5 skipped by design).
 4. Set production variables and secrets (`INVITE_PROXY_SECRET`, `APP_BASE_URL`,
    `CLERK_JWT_ISSUER_DOMAIN`, ...), create the Vercel Firewall rules, turn on Convex
    backups and run the restore drill.
