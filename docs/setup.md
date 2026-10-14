@@ -102,6 +102,12 @@ Set in the **Convex dashboard** when you want to test or launch billing:
 
 Prices and the trial length are set in `lib/billing/pricing.ts` (unset = checkout disabled). Full checklist: `docs/billing.md`.
 
+## Deploying
+
+Production setup (Vercel, Convex production deployment, Clerk production instance,
+variables per environment, backups, runbook, launch checklist) is in
+`docs/deployment.md`.
+
 ## Optional
 
 **Platform operator.** After signing in once:

@@ -5,6 +5,7 @@ import { renderTemplate, sensitivePlaceholders, TEMPLATES, isEventType } from ".
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation } from "./_generated/server";
 import { getOrgEntitlements, hasFeature } from "./lib/entitlements";
+import { logEvent } from "./lib/log";
 import { backoffFor, getSettings, MAX_ATTEMPTS } from "./lib/notify";
 import { bumpUsage, readUsage } from "./lib/usage";
 
@@ -95,6 +96,7 @@ export const complete = internalMutation({
     }
     const lastError = (error ?? "send_failed").slice(0, 200);
     if (row.attempts >= MAX_ATTEMPTS) {
+      logEvent("error", { event: "outbox_failed", fn: "notificationsDelivery.complete", outcome: "failed", org: row.organizationId, count: row.attempts });
       await ctx.db.patch(outboxId, {
         status: "failed",
         lastError,

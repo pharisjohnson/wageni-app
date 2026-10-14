@@ -10,7 +10,7 @@ test("landing page explains the product and links to sign-up", async ({ page }) 
 test("pricing page lists plans", async ({ page }) => {
   await page.goto("/pricing");
   await expect(page.getByRole("heading", { name: "Pricing" })).toBeVisible();
-  await expect(page.getByText("Starter")).toBeVisible();
+  await expect(page.getByText("Starter", { exact: true })).toBeVisible();
 });
 
 test("layout has no horizontal overflow", async ({ page }) => {

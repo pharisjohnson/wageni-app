@@ -7,11 +7,13 @@ import {
 import { effectivePermissions } from "../lib/permissions";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { logEvent } from "./lib/log";
 import { checkClock, currentState, insertEvent } from "./lib/attendance";
 import { hasSiteAccess } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
 import { type KioskContext, kioskMutation } from "./lib/kiosk";
 import { checkAnswers, resolveActiveForm, servedFields, storeResponse } from "./lib/formResponses";
+import { recordFailure, throttleLocked, type ThrottleConfig, type ThrottleState } from "./lib/throttle";
 import { dummyPinWork, PIN_LOCK_MS, PIN_MAX_FAILURES, verifyPin } from "./lib/pin";
 import { vAttendanceType, vRawAnswers } from "./validators";
 
@@ -28,6 +30,56 @@ import { vAttendanceType, vRawAnswers } from "./validators";
  * attempt counter and defeat the lockout.
  */
 const FAIL = { ok: false as const };
+/** H1: the device used up its PIN-failure budget. Says nothing about whether a guess was right. */
+const THROTTLED = { ok: false as const, throttled: true as const };
+
+/**
+ * H1: device-wide budget for failed PIN attempts (any staff number, wrong PIN,
+ * unknown number, locked person). 10 failures in 15 minutes lock the device
+ * for 5 minutes, doubling per repeat lock up to an hour. While locked, nothing
+ * is counted against any person, so one tablet cannot lock out the whole staff
+ * list or keep re-locking one person: at most two people per window.
+ */
+export const PIN_DEVICE_THROTTLE: ThrottleConfig = {
+  windowMs: 15 * 60_000,
+  maxFailures: 10,
+  baseLockMs: 5 * 60_000,
+  maxLockMs: 60 * 60_000,
+  levelDecayMs: 24 * 60 * 60_000,
+};
+
+function pinState(device: Doc<"kioskDevices">): ThrottleState {
+  return {
+    windowStart: device.pinWindowStart,
+    failures: device.pinFailures,
+    lockUntil: device.pinLockUntil,
+    level: device.pinLockLevel,
+    lastLockAt: device.pinLastLockAt,
+  };
+}
+
+async function recordDeviceFailure(ctx: MutationCtx & { kiosk: KioskContext }) {
+  const { device } = ctx.kiosk;
+  const { state, locked } = recordFailure(pinState(device), PIN_DEVICE_THROTTLE);
+  await ctx.db.patch(device._id, {
+    pinWindowStart: state.windowStart,
+    pinFailures: state.failures,
+    pinLockUntil: state.lockUntil,
+    pinLockLevel: state.level,
+    pinLastLockAt: state.lastLockAt,
+  });
+  if (locked) {
+    logEvent("warn", { event: "kiosk_pin_throttled", fn: "kioskAttendance", outcome: "locked", org: ctx.kiosk.org._id, count: state.level ?? 1 });
+    await writeAudit(ctx, {
+      organizationId: ctx.kiosk.org._id,
+      kioskDeviceId: device._id,
+      action: "kiosk.pin_throttled",
+      resourceType: "kiosk_device",
+      resourceId: device._id,
+      metadata: { gateId: device.gateId, level: state.level ?? 1 },
+    });
+  }
+}
 
 function firstNameOf(user: Doc<"users"> | null) {
   const full = user?.name?.trim() || user?.email?.split("@")[0] || "";
@@ -40,9 +92,13 @@ async function authenticate(
   ctx: MutationCtx & { kiosk: KioskContext },
   staffNumberRaw: string,
   pin: string,
-): Promise<Authenticated | null> {
+): Promise<Authenticated | "throttled" | null> {
+  if (throttleLocked(pinState(ctx.kiosk.device))) return "throttled";
   const staffNumber = normalizeStaffNumber(staffNumberRaw);
-  if (!STAFF_NUMBER_PATTERN.test(staffNumber) || !PIN_PATTERN.test(pin)) return null;
+  if (!STAFF_NUMBER_PATTERN.test(staffNumber) || !PIN_PATTERN.test(pin)) {
+    await recordDeviceFailure(ctx);
+    return null;
+  }
   const { org, site } = ctx.kiosk;
   const membership = await ctx.db
     .query("memberships")
@@ -67,6 +123,7 @@ async function authenticate(
   const now = Date.now();
   if (!membership || !eligible || !record || (record.lockedUntil ?? 0) > now) {
     await dummyPinWork(pin);
+    await recordDeviceFailure(ctx);
     return null;
   }
   // A lock that has run out starts a fresh set of attempts.
@@ -87,6 +144,7 @@ async function authenticate(
         resourceId: membership._id,
       });
     }
+    await recordDeviceFailure(ctx);
     return null;
   }
   if (record.failedAttempts !== 0 || record.lockedUntil !== undefined) {
@@ -112,6 +170,7 @@ export const identify = kioskMutation({
   args: credentials,
   handler: async (ctx, { staffNumber, pin }) => {
     const who = await authenticate(ctx, staffNumber, pin);
+    if (who === "throttled") return THROTTLED;
     if (!who) return FAIL;
     const { open } = await currentState(ctx, ctx.kiosk.org._id, who.membership.userId);
     // The form is only handed out after the PIN checked out, and only when a
@@ -145,6 +204,7 @@ export const record = kioskMutation({
   },
   handler: async (ctx, { staffNumber, pin, type, versionId, answers: rawAnswers }) => {
     const who = await authenticate(ctx, staffNumber, pin);
+    if (who === "throttled") return THROTTLED;
     if (!who) return FAIL;
     const firstName = firstNameOf(who.user);
     const userId = who.membership.userId;

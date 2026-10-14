@@ -1,9 +1,10 @@
 # Security notes
 
-Status: **Phase 1, not reviewed.** This document records the controls that
-exist today and the known gaps. The product hasn't had an independent
-security or legal review. Do not claim compliance with Kenya's Data Protection
-Act 2019 (or any other regime) until one has been done.
+Status: **internally reviewed in Phase 8 (H1); no independent review.** This
+document records the controls that exist today and the known gaps. The product
+hasn't had an independent security or legal review. Do not claim compliance with
+Kenya's Data Protection Act 2019 (or any other regime) until one has been done.
+Start with "Hardening review (H1)" for the inventory of public entry points.
 
 ## In place
 
@@ -88,11 +89,11 @@ so the device token fixes org, site and gate; the visitor never supplies them.
   (`admitAppointment`, `registerVisit`, `completeCheckOut`) and is used by both
   the signed-in and kiosk paths.
 - Residual risks: the badge code + 4 digits is a weak secret (about 10^10
-  combinations) protected only by the per-device throttle, and an attacker with
-  several paired devices multiplies attempts. A phone number is the only proof
-  of identity for appointment check-in. Walk-in submissions are limited only by
-  the 60/minute device rate limit. A visitor can learn whether a phone number
-  has an appointment today by knowing that number (inherent to phone lookup).
+  combinations); H1 added per-visit lockout, 24 h badge expiry and escalating
+  device locks, and walk-in daily budgets (see "Hardening review (H1)"). A phone
+  number is the only proof of identity for appointment check-in. A visitor can
+  learn whether a phone number has an appointment today by knowing that number
+  (inherent to phone lookup).
 
 ## Staff attendance and kiosk PINs (A1)
 
@@ -115,8 +116,10 @@ so the device token fixes org, site and gate; the visitor never supplies them.
   and no-site-access all return the identical result and burn comparable CPU.
   Lockout is audited (`attendance.pin_locked`, by device).
 - **Residual risks.** A 4-6 digit PIN has little entropy: protection rests on the
-  lockout, device token and rate limit. An attacker with a paired kiosk can lock
-  out a known staff number (denial of service) for 15 minutes at a time.
+  lockout, device token and rate limit. H1 added a per-device
+  budget (10 failures / 15 minutes, exponential lock up to an hour, nothing
+  counted against people while locked), so one kiosk can lock at most two
+  people per window.
   Staff numbers are not secret (printed on badges is fine). Correction times are
   entered in the device's time zone, not the site's.
 
@@ -265,14 +268,168 @@ so the device token fixes org, site and gate; the visitor never supplies them.
   https origin from a signed-in member is accepted, so a member could point their
   own invitation at a host they control; set `APP_BASE_URL` in production.
 
+## Hardening review (H1)
+
+An internal adversarial review of every unauthenticated entry point and the
+tenant boundary, with fixes and tests (`tests/convex/hardening.test.ts`,
+`dataRights.test.ts`, `tests/unit/security-headers.test.ts`,
+`tests/e2e/security.spec.ts`). It is **not** an independent penetration test.
+
+### Inventory of unauthenticated entry points
+
+"Device token" means a per-gate kiosk token (256 bits, hash stored) resolved by
+`kioskQuery`/`kioskMutation`; every failure is the same `NOT_FOUND`. All kiosk
+mutations also share the 60 calls/minute per-device limit, so it is not repeated
+in the table. "Proxy" means reachable only through `app/api/invite/*` with
+`INVITE_PROXY_SECRET`, which adds a per-IP budget.
+
+| Entry point | Auth model | Limits | Returns | Abuse notes |
+| --- | --- | --- | --- | --- |
+| `organizations.getPublicBySlug` (query) | None | None possible on a query; input validated before any read (slug shape, 64 chars); one indexed read; Convex caches per argument | Name, slug, https logo, hex colour, welcome text, privacy notice. No ids, status, members, sites | Unknown, suspended and malformed slugs are the same `null`. Slugs are not secret, so the existence of an org is public by design |
+| `health.ping` (query) | None | None | `{ ok: true }` | Constant, no reads |
+| `kiosk.context` (query) | Device token | Read-only | Site and gate name | |
+| `kiosk.heartbeat` (mutation) | Device token | 60/min/device | `{ ok }` | |
+| `kioskVisitor.hosts` (query) | Device token | Read-only; at most 500 memberships scanned, 200 names returned | Host names and user ids for this site | Names are visible to anyone standing at a paired kiosk, by design |
+| `kioskVisitor.findAppointments` | Device token + phone | Lookup throttle: 8 failures / 5 min lock the device; locks escalate 5, 10, 20, 40, 60 min | First name, host name, start time for the caller's own approved appointments today at this site | Generic `no_match`; a locked device answers `locked` for right and wrong guesses alike |
+| `kioskVisitor.checkInAppointment` | Device token + phone + appointment id | Same lookup throttle | First name, host name, new badge code | Phone re-verified; an id alone is useless |
+| `kioskVisitor.registerWalkIn` | Device token | **250 / day / device, 3 / day / phone number / organization** (friendly `RATE_LIMITED` messages); validated fields; host must work at this site | First name, host name | Creates an `expected` visit that a person must admit. Never edits an existing visitor record |
+| `kioskVisitor.checkOut` | Device token + 6-digit badge code + last 4 phone digits | Lookup throttle; **5 wrong digit attempts lock that visit at the kiosk**; **badge accepted for 24 h only** | First name on success | Wrong code, wrong digits, locked visit, expired badge and other site are all `no_match`. Badge codes come from the CSPRNG and are unique among visitors on site |
+| `kioskForms.activeVisitorForm` (query) | Device token | Read-only | The published visitor form definition (labels, consent text) for this site | Form text is public to the kiosk by design; answers are never returned |
+| `kioskForms.formForAppointment` | Device token + phone | Lookup throttle | Form definition; details the appointment already holds are filled server side and never returned | |
+| `kioskForms.checkInAppointmentWithForm` | Device token + phone + form version | Lookup throttle | First name, host name, badge code | Answers validated server side before any write |
+| `kioskForms.submitWalkIn` | Device token | Same walk-in budgets as `registerWalkIn` | First name, host name | |
+| `kioskAttendance.identify` / `record` | Device token + staff number + PIN | Per person: 5 failures lock 15 min. **Per device: 10 failures / 15 min lock the device, doubling to 60 min; nothing is counted against a person while the device is locked** | First name, status, staff form (after the PIN verified) | Failures return `{ ok:false }` identically and burn equal CPU; a throttled device returns `{ ok:false, throttled:true }`, which does not depend on whether a guess was right |
+| `filesKiosk.generateUploadUrl` / `registerUploaded` | Device token | 30 uploads / 5 min / device, 20 open upload intents | One-shot upload URL; file id | Size and declared type checked, bytes verified by magic number afterwards; the kiosk can never read a file back |
+| `invitations.lookup` (mutation) | Invitation token (256 bits) + proxy secret | **Proxy:** 60/min per IP; global 120/min | Invitation details for that token only | Every failure is `unavailable`; single use |
+| `invitations.generateUploadUrl` / `registerUploaded` | Invitation token + proxy | 30 / 5 min per IP; 10 uploads per invitation; global 120/min | Upload URL; file id | |
+| `invitations.submit` | Invitation token + proxy | 15 / 10 min per IP; global 120/min | `ok` or `unavailable` | Consumes the link |
+| `POST /webhooks/notifications` (Convex HTTP) | HMAC-SHA256 over `timestamp.body` with `NOTIFY_WEBHOOK_SECRET` | 4 KB body cap; 5 min replay window; 404 when no secret | `{ ok:true }` whether or not the id matched | Rejections are logged as `webhook_rejected` (no content). Billing routes: see `docs/billing.md` |
+| `POST /webhooks/payhero/<token>` (Convex HTTP, B2) | Unsigned callback: path token (hash stored) plus a server-side status check with PayHero before crediting | See `docs/billing.md` | `{ ok }` | Reviewed separately; checks recommended in the H1 report |
+| `POST /api/invite/[action]` (Next) | Proxy for the four invitation functions | 512 KB body cap; action allowlist; per-IP budgets applied in Convex | Whatever the Convex function returns | Fails closed (503) without `INVITE_PROXY_SECRET`; callers cannot send their own `proxySecret`/`ipHash` |
+| `GET /api/health` (Next) | None; `?deep=1` needs the `HEALTH_CHECK_TOKEN` bearer | Deep refused without the token | `{ status: "ok" }`; deep adds "configured" booleans and Convex reachability | `no-store`. No versions, hosts or secrets |
+| Pages `/kiosk/*`, `/invite/*`, marketing | None | Platform (Vercel Firewall) | Static shells; no tenant data until a device token or invitation token is presented | `/invite` sets `noindex` and `no-referrer` |
+
+Signed in but not organization-scoped: `users.store`/`me` (own record),
+`organizations.create` (max 5 owned, validated), `organizations.mine` (own
+memberships), `organizations.isSlugAvailable` (needs sign-in), `platform.*`
+(`super_admin` only, metadata only). Everything else tenant-facing is an
+`orgQuery`/`orgMutation`; the only functions that take an organization from
+anywhere but the caller's membership are `internal*` ones (not callable by
+clients) and the kiosk/invite functions above, which derive it from the token.
+`convex/billing*` and the billing webhooks are covered in `docs/billing.md`.
+
+### Findings and fixes
+
+| # | Severity | Finding | Fix | Test |
+| --- | --- | --- | --- | --- |
+| 1 | Medium | Kiosk check-out secret (6-digit code + 4 digits) was protected only by the per-device lookup throttle, so a patient guesser (96 guesses an hour on one tablet) could close someone else's visit | A visit locks for kiosk check-out after 5 wrong phone-digit attempts (audit `visit.kiosk_checkout_locked`; staff can still check out); the kiosk only accepts badges younger than 24 h; the device lock escalates (item 5) | `hardening.test.ts` "kiosk check-out secret" |
+| 2 | Medium | Badge codes came from `Math.random()` (not a CSPRNG) | `crypto.getRandomValues` with rejection sampling, still unique among visitors on site | "issued badge codes are 6 digits and unique" |
+| 3 | Medium | Walk-in spam limited only to 60/min/device: a tablet could create tens of thousands of visitor rows, audit entries and notifications a day | 250/day/device and 3/day/phone/organization (phone hashed in the counter key); friendly messages; the sweeper keeps 24 h counters | "walk-in spam budgets" |
+| 4 | Medium | Anyone at a paired kiosk who knew staff numbers could lock those people out (5 wrong PINs each, repeatable every 15 minutes) | Per-device PIN-failure budget (10 / 15 min) with exponential lock to 60 min; while locked nothing is counted against a person. One tablet can lock at most two people per window | "staff PIN: device-wide failure budget" |
+| 5 | Low | The lookup lock was a flat 5 minutes, so guessing could continue all day | Escalating lock 5, 10, 20, 40, 60 min, reset after a quiet day (audit entry carries the level) | "escalating lookup lock", "throttle maths" |
+| 6 | Low | `getPublicBySlug` accepted unbounded input and served stored branding unchecked | Slug shape and length validated before the read; logo (https) and colour (hex) re-validated on output | "organizations.getPublicBySlug" |
+| 7 | Low | `paginationOpts.numItems` was client-controlled on the audit, members and platform lists | Clamped to 100 (`clampPagination`) | "page size caps" |
+| 8 | Info | No security headers or CSP; CI typecheck would fail on a clean checkout (generated route types) | Headers and CSP in `next.config.ts`; `next typegen` step in CI | `security-headers.test.ts`, `security.spec.ts` |
+| 9 | Info | No way to export a tenant's data or erase one visitor (Kenya DPA access and erasure) | `dataRights.exportChunk`, `dataRights.eraseVisitor` (owner only, audited, bounded) | `dataRights.test.ts` |
+
+Checked and found sound (no change): ids from the client are re-verified against
+the caller's organization and site access wherever they are loaded; there is no
+`.collect()` anywhere in `convex/`; no `v.any()` outside the billing webhook (out
+of scope here); the audit actor is always derived from `ctx` (a user id or a
+device id, never from arguments); `visitEvents`, `attendanceEvents` and form
+versions are only ever inserted (the documented retention deletions are the sole
+exception); the invite proxy cannot be bypassed (direct calls are `FORBIDDEN`);
+customer text (logo URL, welcome text, privacy notice, form labels, help text,
+consent text) is only rendered as React text, there is no
+`dangerouslySetInnerHTML`, logos must be `https://` and colours are hex; CSV
+export neutralises leading `=`, `+`, `-`, `@`, tab and CR; no redirect takes a URL
+from input; the kiosk setup token travels in the URL fragment and is removed from
+the address bar once stored.
+
+### Web hardening (`next.config.ts`, `lib/security/headers.ts`)
+
+- `Content-Security-Policy` allowlist: `default-src 'self'`; scripts from self,
+  Clerk's Frontend API host (derived from the publishable key) and Cloudflare
+  Turnstile; `connect-src` to Convex (`https`/`wss` `*.convex.cloud`) and Clerk;
+  `img-src` self, data, blob and `https:` (customer logos); `media-src blob:`
+  (camera preview); `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`;
+  `frame-ancestors 'none'`. **`script-src` keeps `'unsafe-inline'`**: a nonce
+  policy needs every page rendered per request, which would defeat the static
+  shell and partial prefetch this app depends on. Mitigation: the app never
+  renders user-supplied HTML. Revisit with nonces if pages go fully dynamic.
+  Fonts come from `next/font`, which self-hosts them at build time, so no font
+  host is allowed.
+- `Strict-Transport-Security` (1 year, includeSubDomains; no `preload` until the
+  domain is committed), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: strict-origin-when-cross-origin` (invite pages set
+  `no-referrer`), `Permissions-Policy: camera=(self)` with everything else off,
+  `x-powered-by` removed.
+- Roll out safely: set `CSP_REPORT_ONLY=true` on the first preview deployment with
+  real Clerk keys, click through sign-in, kiosk, invite upload and the camera, read
+  the console for violations, then remove it. The local Playwright run has no
+  Clerk keys, so the Clerk part of the policy is **verified by reasoning and unit
+  tests only, not in a browser**.
+- CSRF: sign-in uses Clerk's cookies (`SameSite=Lax`). The app has no
+  cookie-authenticated state-changing route handlers: Convex calls carry a bearer
+  JWT, not a cookie, and the only Next POST handler, `/api/invite/*`, authorises
+  with tokens in the body. `form-action 'self'` and `frame-ancestors 'none'` add
+  defence in depth.
+- `proxy.ts` protects `/app`, `/platform` and `/onboarding` only (optimistic;
+  Convex is authoritative). `/kiosk`, `/invite`, `/api/invite`, `/api/health` and
+  marketing stay public; `/api/health` is excluded from the Clerk middleware.
+
+### Edge rate limits: what Vercel Firewall must do
+
+Convex cannot see client IPs and the browser talks to `*.convex.cloud` directly,
+so **Vercel's firewall never sees kiosk calls**: the kiosk is defended by device
+tokens, per-device budgets and lockouts only. Do not rely on the WAF for it.
+What the WAF can and should cover (Project, Firewall, Custom Rules):
+
+1. `POST /api/invite/*`: rate limit 60 requests/minute per IP, challenge then deny
+   for 10 minutes. (Matches the per-IP budgets in Convex; this stops the traffic
+   before a function runs.)
+2. `/kiosk/*` and `/invite/*` pages: 120 requests/minute per IP, challenge. They
+   are static shells; this is cost control and scraping protection.
+3. `/api/health`: 30 requests/minute per IP.
+4. `/sign-in`, `/sign-up`: leave to Clerk's bot protection; keep Vercel's managed
+   bot rules on.
+5. Know where "Attack Challenge Mode" is; it is the incident switch.
+
+Residual: an attacker who rotates IPv6 addresses inside one /64 gets a fresh
+per-IP budget each time (hash the /64 if this becomes real); a request whose IP
+cannot be read shares one `unknown` bucket, which one abuser could exhaust for
+other no-IP callers (not the case on Vercel).
+
+### Residual risks (accepted, documented)
+
+- A phone number is the only proof of identity for appointment check-in; a person
+  who knows another visitor's number can see their first name, host and time and
+  check them in (inherent to the design; the badge goes to whoever is at the kiosk).
+- A person at a paired kiosk can still deny service to that kiosk's lookups and PIN
+  entry for up to an hour at a time by failing on purpose, and can lock two staff
+  PINs per window. Re-issuing the device (revoke, pair again) clears its counters;
+  managers reset a locked person's PIN. Neither exposes data.
+- After 5 wrong digit attempts a visitor must see reception to check out; that is
+  intentional.
+- `registerUpload` and the invalid-link branch of `invitations.registerUploaded`
+  delete the blob named in the call. A storage id is a random capability shown only
+  to the uploader, so this needs a leaked id.
+- Kiosk device tokens live in `localStorage`; script injection on the kiosk origin
+  could read one. CSP, no HTML rendering and a 256-bit revocable token limit this;
+  revoke on loss.
+- `braces` (dev tooling: ESLint and the `shadcn` CLI) has an open advisory
+  (GHSA-vfj7-8cjw-p6xm, stack exhaustion on hostile glob patterns); no patched
+  version is published yet. It is not in the application bundle.
+- Not automated: outbox rows holding a visitor's address are removed by the 90 day
+  purge, not by `eraseVisitor`; see `docs/deployment.md` for the full data-subject
+  procedure.
+
 ## Known gaps / backlog
 
-- Per-IP rate limiting covers the public invitation functions only. Kiosk calls
-  are limited per paired device (60 per minute, lookup lockouts) and are not
-  per-IP, and the read-only `organizations.getPublicBySlug` (branding for the
-  kiosk welcome screen) is unlimited because a query cannot count. Direct
-  uploads of bytes to Convex storage URLs are not proxied (the URLs are one-shot
-  and issued only after the per-IP check).
+- Kiosk calls are limited per paired device and by lockouts, not per IP (see "Edge
+  rate limits" above for what the WAF can cover). Direct uploads of bytes to Convex
+  storage URLs are not proxied (the URLs are one-shot and issued only after the
+  per-IP check).
 - Content verification checks signatures, type and size, not that an image or
   PDF is well formed or free of embedded active content. Files are only shown
   as images or offered as downloads.
@@ -281,11 +438,10 @@ so the device token fixes org, site and gate; the visitor never supplies them.
 - Answer redaction does not rewrite free text kept elsewhere (appointment
   purpose, decision notes) or the `visitors` record, which P1's anonymisation
   covers.
-- Content Security Policy and security headers in `next.config.ts`.
-- Retention policies and data-subject request tooling (Phase 5).
 - Signed outbound webhooks with SSRF protection (inbound delivery receipts are done, see Notifications).
-- Monitoring and alerting (Sentry or equivalent) (Phase 8).
-- Backup/restore procedure for Convex (export and import) still needs to be documented and rehearsed.
+- Error tracking (Sentry or similar) is a documented hook point, not installed; see `docs/deployment.md`.
+- The Convex backup/restore procedure is documented but has not been rehearsed against a production deployment (restore drill in `docs/deployment.md`).
+- No independent penetration test or Data Protection Impact Assessment yet.
 - The operator console uses a browser prompt to collect a suspension reason;
   this should be replaced with an in-page dialog.
 

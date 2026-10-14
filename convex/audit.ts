@@ -3,6 +3,7 @@ import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireFeature } from "./lib/entitlements";
 import { orgQuery } from "./lib/functions";
+import { clampPagination } from "./lib/validate";
 
 /**
  * Newest-first audit trail for the caller's organization (`audit:read`).
@@ -61,7 +62,7 @@ export const list = orgQuery({
         ),
       )
       .order("desc")
-      .paginate(paginationOpts);
+      .paginate(clampPagination(paginationOpts));
 
     const users = new Map<string, Promise<Doc<"users"> | null>>();
     const devices = new Map<string, Promise<Doc<"kioskDevices"> | null>>();

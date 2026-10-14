@@ -22,6 +22,8 @@ const DONE_SECONDS = 15;
 const GENERIC_FAILURE =
   "We couldn't verify those details. Check your staff number and PIN, or ask reception for help.";
 
+const THROTTLED_FAILURE = "Too many failed attempts on this kiosk. Please wait a few minutes or ask reception for help.";
+
 /** The staff form published for this site (for example a daily declaration), asked at clock-in. */
 type StaffForm = { versionId: Id<"formVersions">; name: string; fields: unknown[] };
 
@@ -139,7 +141,7 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
     setBusy(true);
     try {
       const r = await kioskApi.mutation(api.kioskAttendance.identify, { staffNumber, pin });
-      if (!r.ok) return reset(GENERIC_FAILURE);
+      if (!r.ok) return reset("throttled" in r ? THROTTLED_FAILURE : GENERIC_FAILURE);
       const alreadyDone = checkingIn ? r.status === "in" : r.status === "out";
       setStep({
         name: "confirm",
@@ -169,7 +171,7 @@ export function KioskStaffAttendance({ type }: { type: "clock_in" | "clock_out" 
       if (!r.ok) {
         setPin("");
         setStaffNumber("");
-        return reset(GENERIC_FAILURE);
+        return reset("throttled" in r ? THROTTLED_FAILURE : GENERIC_FAILURE);
       }
       // Form problems keep the PIN so the person can fix the answers and try again.
       if (r.outcome === "form_invalid" && form) {

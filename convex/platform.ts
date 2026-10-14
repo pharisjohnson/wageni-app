@@ -4,6 +4,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { requirePlatformAdmin } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
 import { appError } from "./lib/errors";
+import { clampPagination } from "./lib/validate";
 import { vPlanKey } from "./validators";
 
 /**
@@ -18,7 +19,7 @@ export const listOrganizations = query({
       .query("organizations")
       .withIndex("by_created")
       .order("desc")
-      .paginate(paginationOpts);
+      .paginate(clampPagination(paginationOpts));
     return {
       ...page,
       page: page.page.map((o) => ({

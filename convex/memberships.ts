@@ -11,6 +11,7 @@ import { writeAudit } from "./lib/audit";
 import { requireWithinLimit } from "./lib/entitlements";
 import { appError } from "./lib/errors";
 import { orgMutation, orgQuery } from "./lib/functions";
+import { clampPagination } from "./lib/validate";
 import type { MutationCtx } from "./_generated/server";
 import {
   vMembershipStatus,
@@ -26,7 +27,7 @@ export const list = orgQuery({
     const page = await ctx.db
       .query("memberships")
       .withIndex("by_org", (q) => q.eq("organizationId", ctx.oc.org._id))
-      .paginate(paginationOpts);
+      .paginate(clampPagination(paginationOpts));
     const rows = [];
     for (const m of page.page) {
       const user = await ctx.db.get(m.userId);

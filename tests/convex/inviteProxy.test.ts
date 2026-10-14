@@ -206,7 +206,7 @@ describe("stale counters", () => {
     const t = newTest();
     const now = Date.now();
     await t.run(async (ctx) => {
-      await ctx.db.insert("publicRateLimits", { key: "ip:invite_lookup:old", windowStart: now - 5 * HOUR, count: 3 });
+      await ctx.db.insert("publicRateLimits", { key: "ip:invite_lookup:old", windowStart: now - 30 * HOUR, count: 3 });
       await ctx.db.insert("publicRateLimits", { key: "ip:invite_lookup:new", windowStart: now - 1000, count: 3 });
     });
     expect(await t.mutation(internal.publicLimits.sweepStale, { now })).toEqual({ deleted: 1, hasMore: false });

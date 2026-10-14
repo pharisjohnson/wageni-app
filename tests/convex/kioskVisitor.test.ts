@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { LOOKUP_MAX_FAILURES, LOOKUP_WINDOW_MS } from "../../convex/lib/kioskLookup";
+import { LOOKUP_MAX_FAILURES } from "../../convex/lib/kioskLookup";
 import { addMember, createOrgWithOwner, expectCode, newTest, type T } from "./setup";
 
 const HOUR = 60 * 60 * 1000;
@@ -223,7 +223,7 @@ describe("kiosk appointment check-in", () => {
       "found",
     );
     // The window expires.
-    await t.run((ctx) => ctx.db.patch(s.deviceId, { lookupWindowStart: Date.now() - LOOKUP_WINDOW_MS - 1 }));
+    await t.run((ctx) => ctx.db.patch(s.deviceId, { lookupLockUntil: Date.now() - 1 }));
     expect((await t.mutation(api.kioskVisitor.findAppointments, { ...s.k, phone: PHONE })).status).toBe("found");
   });
 

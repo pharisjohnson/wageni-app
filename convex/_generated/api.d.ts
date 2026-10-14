@@ -18,12 +18,14 @@ import type * as billingLifecycle from "../billingLifecycle.js";
 import type * as billingPayhero from "../billingPayhero.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
+import type * as dataRights from "../dataRights.js";
 import type * as files from "../files.js";
 import type * as filesKiosk from "../filesKiosk.js";
 import type * as filesVerify from "../filesVerify.js";
 import type * as formRetention from "../formRetention.js";
 import type * as forms from "../forms.js";
 import type * as gates from "../gates.js";
+import type * as health from "../health.js";
 import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
 import type * as kiosk from "../kiosk.js";
@@ -44,6 +46,7 @@ import type * as lib_invitationHooks from "../lib/invitationHooks.js";
 import type * as lib_invitationToken from "../lib/invitationToken.js";
 import type * as lib_kiosk from "../lib/kiosk.js";
 import type * as lib_kioskLookup from "../lib/kioskLookup.js";
+import type * as lib_log from "../lib/log.js";
 import type * as lib_notify from "../lib/notify.js";
 import type * as lib_pin from "../lib/pin.js";
 import type * as lib_policy from "../lib/policy.js";
@@ -52,6 +55,7 @@ import type * as lib_publicLimit from "../lib/publicLimit.js";
 import type * as lib_reportExport from "../lib/reportExport.js";
 import type * as lib_reports from "../lib/reports.js";
 import type * as lib_retentionCron from "../lib/retentionCron.js";
+import type * as lib_throttle from "../lib/throttle.js";
 import type * as lib_time from "../lib/time.js";
 import type * as lib_usage from "../lib/usage.js";
 import type * as lib_validate from "../lib/validate.js";
@@ -92,12 +96,14 @@ import type * as visits from "../visits.js";
 "billingPayhero": typeof billingPayhero,
 "crons": typeof crons,
 "dashboard": typeof dashboard,
+"dataRights": typeof dataRights,
 "files": typeof files,
 "filesKiosk": typeof filesKiosk,
 "filesVerify": typeof filesVerify,
 "formRetention": typeof formRetention,
 "forms": typeof forms,
 "gates": typeof gates,
+"health": typeof health,
 "http": typeof http,
 "invitations": typeof invitations,
 "kiosk": typeof kiosk,
@@ -118,6 +124,7 @@ import type * as visits from "../visits.js";
 "lib/invitationToken": typeof lib_invitationToken,
 "lib/kiosk": typeof lib_kiosk,
 "lib/kioskLookup": typeof lib_kioskLookup,
+"lib/log": typeof lib_log,
 "lib/notify": typeof lib_notify,
 "lib/pin": typeof lib_pin,
 "lib/policy": typeof lib_policy,
@@ -126,6 +133,7 @@ import type * as visits from "../visits.js";
 "lib/reportExport": typeof lib_reportExport,
 "lib/reports": typeof lib_reports,
 "lib/retentionCron": typeof lib_retentionCron,
+"lib/throttle": typeof lib_throttle,
 "lib/time": typeof lib_time,
 "lib/usage": typeof lib_usage,
 "lib/validate": typeof lib_validate,

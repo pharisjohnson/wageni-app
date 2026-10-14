@@ -3,6 +3,7 @@ import { isCallbackTokenShape, MAX_CALLBACK_BYTES, sha256Hex } from "../lib/bill
 import { RECEIPT_STATUSES, verifyWebhook, type ReceiptStatus } from "../lib/notifications/webhook";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { logEvent } from "./lib/log";
 
 const http = httpRouter();
 
@@ -34,7 +35,10 @@ http.route({
       signature: request.headers.get("x-wageni-signature"),
       body,
     });
-    if (!valid) return reply(401, { error: "invalid_request" });
+    if (!valid) {
+      logEvent("warn", { event: "webhook_rejected", fn: "http.notifications", outcome: "rejected", code: "401" });
+      return reply(401, { error: "invalid_request" });
+    }
 
     let parsed: unknown;
     try {

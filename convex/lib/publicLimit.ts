@@ -1,5 +1,6 @@
 import type { MutationCtx } from "../_generated/server";
 import { appError } from "./errors";
+import { logEvent } from "./log";
 
 /**
  * Fixed-window counter for public (unauthenticated) mutations, keyed by an
@@ -26,6 +27,11 @@ export async function takePublicLimit(ctx: MutationCtx, key: string, max: number
     await ctx.db.patch(row._id, { windowStart: now, count: 1 });
     return;
   }
-  if (row.count >= max) throw appError("RATE_LIMITED");
+  if (row.count >= max) {
+    // Scope only (never the key: it can hold a device id or an IP hash).
+    const scope = key.startsWith("ip:") ? (key.split(":")[1] ?? "ip") : (key.split(":")[0] ?? "key");
+    logEvent("warn", { event: "rate_limited", fn: `publicLimit.${scope}`, outcome: "rejected", code: "RATE_LIMITED" });
+    throw appError("RATE_LIMITED");
+  }
   await ctx.db.patch(row._id, { count: row.count + 1 });
 }

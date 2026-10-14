@@ -52,7 +52,7 @@ test("pricing links back to home and to sign-up", async ({ page }) => {
   await page.getByRole("link", { name: /home$/i }).first().click();
   await expect(page).toHaveURL(/\/$/);
   await page.goto("/pricing");
-  await expect(page.getByRole("link", { name: "Start free trial" }).first()).toHaveAttribute("href", "/sign-up");
+  await expect(page.getByRole("link", { name: "Get started free" }).first()).toHaveAttribute("href", "/sign-up");
 });
 
 test("unknown routes show a 404 with a way home", async ({ page }) => {
