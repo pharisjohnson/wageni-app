@@ -4,7 +4,7 @@ import { kioskPhoneSchema } from "../lib/validation/visits";
 import { mappedValues, usableAutoFill, type Answers, type FormField, type InviteDetails } from "../lib/validation/forms";
 import type { Doc } from "./_generated/dataModel";
 import { kioskMutation, kioskQuery } from "./lib/kiosk";
-import { lookupLocked, recordLookupFailure, todaysAppointmentsForPhone } from "./lib/kioskLookup";
+import { lookupLocked, recordLookupFailure, takeWalkInBudget, todaysAppointmentsForPhone } from "./lib/kioskLookup";
 import {
   checkAnswers,
   fieldsOf,
@@ -183,6 +183,7 @@ export const submitWalkIn = kioskMutation({
       company: mapped["visitor.company"],
       purpose: mapped["visit.purpose"],
     });
+    await takeWalkInBudget(ctx, data.phone);
     const visitorId = await upsertVisitor(
       ctx,
       org._id,

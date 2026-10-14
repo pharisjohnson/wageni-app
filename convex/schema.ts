@@ -167,6 +167,8 @@ export default defineSchema({
     checkedOutMethod: v.optional(vCheckOutMethod),
     // P1: set by retention.purgeExpired when the badge code is cleared.
     anonymisedAt: v.optional(v.number()),
+    // H1: wrong-phone-digits attempts at the kiosk check-out for this visit; the kiosk path locks at 5.
+    checkoutFailures: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -230,6 +232,16 @@ export default defineSchema({
     lookupWindowStart: v.optional(v.number()),
     lookupFailures: v.optional(v.number()),
     // --- end K2
+    // --- H1: escalating backoff for lookups, and a device-wide budget for staff PIN failures
+    lookupLockUntil: v.optional(v.number()),
+    lookupLockLevel: v.optional(v.number()),
+    lookupLastLockAt: v.optional(v.number()),
+    pinWindowStart: v.optional(v.number()),
+    pinFailures: v.optional(v.number()),
+    pinLockUntil: v.optional(v.number()),
+    pinLockLevel: v.optional(v.number()),
+    pinLastLockAt: v.optional(v.number()),
+    // --- end H1
   })
     .index("by_org", ["organizationId"])
     .index("by_gate", ["gateId"])

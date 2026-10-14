@@ -37,6 +37,16 @@ export async function addVisitEvent(
   });
 }
 
+/** Uniform 100000-999999 from the CSPRNG (H1: `Math.random` is predictable). Rejection sampling avoids modulo bias. */
+function randomSixDigits(): string {
+  const limit = 0x100000000 - (0x100000000 % 900000);
+  const buf = new Uint32Array(1);
+  for (;;) {
+    crypto.getRandomValues(buf);
+    if (buf[0]! < limit) return String(100000 + (buf[0]! % 900000));
+  }
+}
+
 /**
  * A 6-digit badge code, unique among the visits currently on site at the
  * site (a few retries; a collision is otherwise harmless because kiosk
@@ -50,7 +60,7 @@ export async function newBadgeCode(ctx: QueryCtx, siteId: Id<"sites">): Promise<
   const taken = new Set(onSite.map((v) => v.badgeCode));
   let code = "";
   for (let i = 0; i < 10; i++) {
-    code = String(Math.floor(100000 + Math.random() * 900000));
+    code = randomSixDigits();
     if (!taken.has(code)) break;
   }
   return code;

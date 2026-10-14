@@ -168,24 +168,32 @@ export const isSlugAvailable = query({
 
 /**
  * Public, unauthenticated lookup for the kiosk welcome screen. Returns only
- * branding needed to render the screen: never members, sites or records.
+ * branding needed to render the screen: never members, sites, ids, status or
+ * records. A query cannot be rate limited and is cached per argument by
+ * Convex, so it is kept to one indexed read; slugs that cannot exist are
+ * answered without touching the database, and the branding is re-checked on
+ * the way out (https logo, hex colour) so a bad stored value is never served.
+ * Unknown and suspended organizations are the same answer (null).
  */
 export const getPublicBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
+    const normalized = slug.length <= 64 ? slugSchema.safeParse(slug) : null;
+    if (!normalized?.success) return null;
     const org = await ctx.db
       .query("organizations")
-      .withIndex("by_slug", (q) => q.eq("slug", slug.toLowerCase()))
+      .withIndex("by_slug", (q) => q.eq("slug", normalized.data))
       .unique();
     if (!org || org.status === "suspended") return null;
+    const { logoUrl, primaryColor, welcomeText, privacyNotice } = org.branding;
     return {
       name: org.name,
       slug: org.slug,
       branding: {
-        logoUrl: org.branding.logoUrl ?? null,
-        primaryColor: org.branding.primaryColor ?? null,
-        welcomeText: org.branding.welcomeText ?? null,
-        privacyNotice: org.branding.privacyNotice ?? null,
+        logoUrl: logoUrl && brandingSchema.shape.logoUrl.safeParse(logoUrl).success ? logoUrl : null,
+        primaryColor: primaryColor && brandingSchema.shape.primaryColor.safeParse(primaryColor).success ? primaryColor : null,
+        welcomeText: welcomeText ?? null,
+        privacyNotice: privacyNotice ?? null,
       },
     };
   },

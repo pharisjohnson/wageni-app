@@ -8,7 +8,7 @@ import { internalMutation } from "./_generated/server";
  * block anyone again (windows are at most 10 minutes), so it is deleted.
  * Bounded per run; a full batch schedules another run.
  */
-const STALE_MS = 60 * 60 * 1000;
+const STALE_MS = 26 * 60 * 60 * 1000; // longest window is the 24 hour walk-in budget (H1)
 const DEFAULT_BATCH = 300;
 
 export const sweepStale = internalMutation({

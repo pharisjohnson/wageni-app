@@ -2,7 +2,14 @@ import { v } from "convex/values";
 import { effectivePermissions } from "../lib/permissions";
 import { kioskCheckOutSchema, kioskPhoneSchema, kioskWalkInSchema } from "../lib/validation/visits";
 import { kioskMutation, kioskQuery } from "./lib/kiosk";
-import { lookupLocked, phoneDigits, recordLookupFailure, todaysAppointmentsForPhone } from "./lib/kioskLookup";
+import {
+  lookupLocked,
+  phoneDigits,
+  recordLookupFailure,
+  takeWalkInBudget,
+  todaysAppointmentsForPhone,
+} from "./lib/kioskLookup";
+import { writeAudit } from "./lib/audit";
 import { parseOrThrow } from "./lib/validate";
 import { formRequiredForAppointment } from "./lib/formResponses";
 import { assertHost, upsertVisitor } from "./lib/visitors";
@@ -33,6 +40,9 @@ const LOCKED: Locked = { status: "locked" };
 const FORM_REQUIRED = { status: "form_required" as const };
 
 const MAX_ON_SITE = 1000;
+/** H1: kiosk self check-out accepts a badge code for 24 hours, and 5 wrong phone-digit tries per visit. */
+export const KIOSK_CHECKOUT_MAX_AGE_MS = 24 * 60 * 60_000;
+export const KIOSK_CHECKOUT_MAX_VISIT_FAILURES = 5;
 
 function firstName(name: string) {
   return name.trim().split(/\s+/)[0] ?? "";
@@ -140,6 +150,7 @@ export const registerWalkIn = kioskMutation({
     const data = parseOrThrow(kioskWalkInSchema, { ...args.visitor, purpose: args.purpose });
     const { org, site, gate, device } = ctx.kiosk;
     await assertHost(ctx, org._id, args.hostUserId, site._id);
+    await takeWalkInBudget(ctx, data.phone);
     const visitorId = await upsertVisitor(
       ctx,
       org._id,
@@ -180,10 +191,29 @@ export const checkOut = kioskMutation({
       .query("visits")
       .withIndex("by_site_status", (q) => q.eq("siteId", site._id).eq("status", "on_site"))
       .take(MAX_ON_SITE);
+    const now = Date.now();
     for (const visit of onSite) {
       if (visit.organizationId !== ctx.kiosk.org._id || visit.badgeCode !== badgeCode) continue;
+      // H1: a badge code stops working at the kiosk after a day, and after 5
+      // wrong phone-digit attempts on this visit. Staff can still check the
+      // visitor out. Both cases look like any other miss.
+      if ((visit.checkedInAt ?? visit.createdAt) < now - KIOSK_CHECKOUT_MAX_AGE_MS) continue;
+      if ((visit.checkoutFailures ?? 0) >= KIOSK_CHECKOUT_MAX_VISIT_FAILURES) continue;
       const visitor = await ctx.db.get(visit.visitorId);
-      if (!visitor?.phone || phoneDigits(visitor.phone).slice(-4) !== phoneLast4) continue;
+      if (!visitor?.phone || phoneDigits(visitor.phone).slice(-4) !== phoneLast4) {
+        const failures = (visit.checkoutFailures ?? 0) + 1;
+        await ctx.db.patch(visit._id, { checkoutFailures: failures });
+        if (failures === KIOSK_CHECKOUT_MAX_VISIT_FAILURES) {
+          await writeAudit(ctx, {
+            organizationId: visit.organizationId,
+            kioskDeviceId: device._id,
+            action: "visit.kiosk_checkout_locked",
+            resourceType: "visit",
+            resourceId: visit._id,
+          });
+        }
+        continue;
+      }
       await completeCheckOut(ctx, visit, "kiosk", { kioskDeviceId: device._id }, gate._id);
       return { status: "ok" as const, firstName: firstName(visitor.name) };
     }
