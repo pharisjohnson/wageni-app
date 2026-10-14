@@ -3,11 +3,9 @@
  * includes. Shared by Convex (authoritative enforcement), the billing page and
  * the marketing catalogue (lib/plans.ts), so they cannot drift apart.
  *
- * Tiers map to Clerk Billing plans by SLUG (PLAN_SLUG_TIER) and/or by the
- * Clerk FEATURE slugs a plan carries (FEATURES below are also the exact Clerk
- * feature slugs). A known plan slug wins; for unknown slugs the features the
- * plan carries decide, so renaming a plan in the Clerk Dashboard does not
- * break entitlements as long as its features keep their slugs.
+ * A subscription (one row per organization, paid through PayHero M-Pesa, a
+ * trial, or a manual grant) names a plan key (`business` | `enterprise`); the
+ * tier is that key, or `free` when there is no usable subscription.
  */
 
 export const TIERS = ["free", "business", "enterprise"] as const;
@@ -19,7 +17,7 @@ export const TIER_LABELS: Record<Tier, string> = {
   enterprise: "Enterprise",
 };
 
-/** Feature keys. These are ALSO the Clerk Dashboard feature slugs: create them with exactly these names. */
+/** Feature keys. */
 export const FEATURES = [
   "multi_site",
   "custom_forms",
@@ -44,19 +42,6 @@ export const TIER_FEATURES: Record<Tier, readonly Feature[]> = {
   free: [],
   business: ["multi_site", "custom_forms", "notifications", "audit_log"],
   enterprise: [...FEATURES],
-};
-
-/**
- * Clerk plan slug (lower case) -> tier. Edit if the plans are named
- * differently in the Clerk Dashboard. Unknown slugs fall back to the features
- * the plan carries (see resolveTier), then to `free`.
- */
-export const PLAN_SLUG_TIER: Record<string, Tier> = {
-  free: "free",
-  free_user: "free",
-  starter: "free",
-  business: "business",
-  enterprise: "enterprise",
 };
 
 /** null = unlimited. */
@@ -100,26 +85,10 @@ export const LIMIT_LABELS: Record<LimitKey, string> = {
   notificationsPerMonth: "Messages sent this month",
 };
 
-const TIER_RANK: Record<Tier, number> = { free: 0, business: 1, enterprise: 2 };
+export const TIER_RANK: Record<Tier, number> = { free: 0, business: 1, enterprise: 2 };
 
 export function isFeature(value: string): value is Feature {
   return (FEATURES as readonly string[]).includes(value);
-}
-
-/**
- * Tier for a Clerk plan. A known plan slug wins; otherwise the highest tier
- * whose features are ALL present in `featureSlugs`; otherwise `free`.
- */
-export function resolveTier(planSlug: string | undefined | null, featureSlugs: readonly string[] = []): Tier {
-  const bySlug = planSlug ? PLAN_SLUG_TIER[planSlug.toLowerCase()] : undefined;
-  if (bySlug) return bySlug;
-  const have = new Set(featureSlugs);
-  let tier: Tier = "free";
-  for (const t of ["business", "enterprise"] as const) {
-    const needed = TIER_FEATURES[t];
-    if (needed.length > 0 && needed.every((f) => have.has(f))) tier = t;
-  }
-  return tier;
 }
 
 export type Entitlements = {
@@ -151,63 +120,61 @@ export function minTierForLimit(key: LimitKey, current: number): Tier {
   );
 }
 
-// ---- Subscription status handling (shared by the webhook mapping and the resolver) ----
+// ---- Subscription status handling (shared by the resolver, the lifecycle cron and the UI) ----
 
 export const SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due", "canceled", "ended"] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
-/** Past-due payments keep access this long, then the organization drops to Starter. */
+/** After a period ends unpaid, the plan stays usable (status past_due) this long, then the organization drops to Starter. */
 export const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
-/**
- * Safety net if an "ended" webhook is ever missed: an active row whose period
- * ended longer ago than this no longer grants access.
- */
-export const STALE_PERIOD_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+
+export type PaidPlanKey = "business" | "enterprise";
 
 export type SubscriptionLike = {
-  planSlug: string;
-  featureSlugs?: string[];
+  planKey: PaidPlanKey;
   status: SubscriptionStatus;
-  currentPeriodEnd?: number;
-  pastDueAt?: number;
-  updatedAt: number;
+  currentPeriodEnd: number;
+  trialEndsAt?: number;
 };
 
 /**
- * Does this subscription grant its plan right now? Downgrades are by time
- * only: canceled plans last until the period they paid for ends; past-due
- * plans get PAST_DUE_GRACE_MS; ended ones are over.
+ * The status that applies RIGHT NOW. Derived from time so that access never
+ * depends on the lifecycle cron having run; the cron only tidies the stored
+ * status and sends reminders.
+ *
+ * - trialing: until the trial ends, then ended.
+ * - active / past_due: active until the period ends, past_due for
+ *   PAST_DUE_GRACE_MS after it, then ended.
+ * - canceled: access until the period end, then ended.
  */
-export function subscriptionGrantsAccess(s: SubscriptionLike, now: number): boolean {
+export function effectiveStatus(s: SubscriptionLike, now: number): SubscriptionStatus {
   switch (s.status) {
     case "ended":
-      return false;
+      return "ended";
     case "canceled":
-      return s.currentPeriodEnd !== undefined && now < s.currentPeriodEnd;
-    case "past_due":
-      return now < (s.pastDueAt ?? s.updatedAt) + PAST_DUE_GRACE_MS;
-    case "active":
+      return now < s.currentPeriodEnd ? "canceled" : "ended";
     case "trialing":
-      return s.currentPeriodEnd === undefined || now < s.currentPeriodEnd + STALE_PERIOD_GRACE_MS;
+      return now < (s.trialEndsAt ?? s.currentPeriodEnd) ? "trialing" : "ended";
+    case "active":
+    case "past_due":
+      if (now < s.currentPeriodEnd) return "active";
+      return now < s.currentPeriodEnd + PAST_DUE_GRACE_MS ? "past_due" : "ended";
   }
 }
 
-/** The best tier granted by a set of subscription rows (one per Clerk subscription item). */
-export function effectiveTier<T extends SubscriptionLike>(
-  rows: readonly T[],
+/** Does this subscription grant its plan right now? */
+export function subscriptionGrantsAccess(s: SubscriptionLike, now: number): boolean {
+  return effectiveStatus(s, now) !== "ended";
+}
+
+/** Tier (and effective status) for an organization's subscription row; `free` when none or over. */
+export function tierForSubscription(
+  row: SubscriptionLike | null,
   now: number,
-): { tier: Tier; row: T | null } {
-  let tier: Tier = "free";
-  let best: T | null = null;
-  for (const row of rows) {
-    if (!subscriptionGrantsAccess(row, now)) continue;
-    const t = resolveTier(row.planSlug, row.featureSlugs);
-    if (best === null || TIER_RANK[t] > TIER_RANK[tier]) {
-      tier = t;
-      best = row;
-    }
-  }
-  return { tier, row: best };
+): { tier: Tier; status: SubscriptionStatus | null } {
+  if (!row) return { tier: "free", status: null };
+  const status = effectiveStatus(row, now);
+  return { tier: status === "ended" ? "free" : row.planKey, status };
 }
 
 /** Calendar month key in UTC, e.g. "2026-10". */

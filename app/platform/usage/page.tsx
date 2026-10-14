@@ -2,6 +2,7 @@
 
 import { usePaginatedQuery } from "convex/react";
 import { PageHeader } from "@/components/layout/page-header";
+import { GrantPlan } from "@/components/platform/grant-plan";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -34,6 +35,7 @@ export default function PlatformUsagePage() {
                 <TableHead>Visits (month)</TableHead>
                 <TableHead>Messages (month)</TableHead>
                 <TableHead>Files (month)</TableHead>
+                <TableHead>Plan access</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -54,6 +56,16 @@ export default function PlatformUsagePage() {
                   <TableCell>{of(o.notifications, o.enforced ? o.limits.notificationsPerMonth : null)}</TableCell>
                   <TableCell>
                     {o.files} ({Math.round(o.fileBytes / 1024 / 1024)} MB)
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-1.5">
+                      {o.subscriptionEnd && (
+                        <p className="text-xs text-muted-foreground">
+                          {o.subscriptionSource ?? "payment"} until {new Date(o.subscriptionEnd).toLocaleDateString()}
+                        </p>
+                      )}
+                      <GrantPlan organizationId={o._id} />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

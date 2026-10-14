@@ -1,4 +1,5 @@
 import { TIER_LABELS, TIER_LIMITS, type Tier } from "@/lib/billing/entitlements";
+import { formatKes, priceFor, trialDays } from "@/lib/billing/pricing";
 
 /**
  * Marketing catalogue. Numbers are read from the entitlement tables in
@@ -16,23 +17,27 @@ export type PlanDisplay = {
 };
 
 /**
- * PLACEHOLDERS. No real prices have been decided. Prices live in the Clerk
- * Dashboard (USD only); put the customer-facing text here once they are set.
+ * Customer-facing price text, read from lib/billing/pricing.ts so there is one
+ * place to set prices. Unset prices say so honestly; nothing is invented.
  */
+function monthlyLabel(tier: "business" | "enterprise", fallback: string): string {
+  const m = priceFor(tier, "monthly");
+  const a = priceFor(tier, "annual");
+  if (m === null && a === null) return fallback;
+  return [m !== null ? `${formatKes(m)} per month` : null, a !== null ? `${formatKes(a)} per year` : null]
+    .filter(Boolean)
+    .join(" or ");
+}
+
 export const PLAN_PRICE_LABELS: Record<Tier, string> = {
   free: "Free",
-  business: "USD price to be announced",
-  enterprise: "Contact us",
+  business: monthlyLabel("business", "KES price to be announced"),
+  enterprise: monthlyLabel("enterprise", "Contact us"),
 };
 
-/**
- * Length of the Business free trial in days, for DISPLAY only. The trial
- * itself is configured on the plan in the Clerk Dashboard. Leave null to say
- * just "free trial" without a number.
- */
-export const BUSINESS_TRIAL_DAYS: number | null = null;
-
-export const BUSINESS_TRIAL_LABEL = BUSINESS_TRIAL_DAYS ? `${BUSINESS_TRIAL_DAYS}-day free trial` : "Free trial";
+/** Trial wording. The trial itself is `BUSINESS_TRIAL_DAYS` in lib/billing/pricing.ts (null = none). */
+const days = trialDays();
+export const BUSINESS_TRIAL_LABEL = days ? `${days}-day free trial` : "";
 
 const free = TIER_LIMITS.free;
 
@@ -56,7 +61,7 @@ export const PLANS: PlanDisplay[] = [
     id: "business",
     tier: "business",
     name: TIER_LABELS.business,
-    priceLabel: `${BUSINESS_TRIAL_LABEL}, then ${PLAN_PRICE_LABELS.business.toLowerCase()}`,
+    priceLabel: BUSINESS_TRIAL_LABEL ? `${BUSINESS_TRIAL_LABEL}, then ${PLAN_PRICE_LABELS.business}` : PLAN_PRICE_LABELS.business,
     description: "For organizations with several sites, gates and reception teams.",
     features: [
       "Multiple sites and gates",

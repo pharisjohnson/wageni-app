@@ -1,18 +1,19 @@
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
-  effectiveTier,
   entitlementsForTier,
   FEATURE_LABELS,
   LIMIT_LABELS,
   minTierFor,
-  PAST_DUE_GRACE_MS,
   minTierForLimit,
+  PAST_DUE_GRACE_MS,
+  tierForSubscription,
   tierHasFeature,
   TIER_LABELS,
   type Entitlements,
   type Feature,
   type LimitKey,
+  type PaidPlanKey,
   type SubscriptionStatus,
 } from "../../lib/billing/entitlements";
 import type { OrgContext } from "./auth";
@@ -22,10 +23,10 @@ import { readUsage } from "./usage";
 /**
  * Plan enforcement. Server-side source of truth; the UI only mirrors it.
  *
- * An organization's plan is its OWNER's Clerk subscription (Wageni tenants are
- * Convex organizations, not Clerk Organizations). Enforcement is off unless
- * the Convex env var BILLING_ENFORCEMENT is exactly "on"; when off, and for
- * demo organizations, every organization has full Enterprise entitlements, so
+ * An organization's plan is ITS OWN subscription row (paid through PayHero
+ * M-Pesa, a trial, or a manual grant). Enforcement is off unless the Convex
+ * env var BILLING_ENFORCEMENT is exactly "on"; when off, and for demo
+ * organizations, every organization has full Enterprise entitlements, so
  * development, tests and pre-launch demos are unaffected.
  *
  * Downgrades never delete data. Over-limit organizations keep what they have
@@ -40,42 +41,24 @@ export type OrgEntitlements = Entitlements & {
   /** False when enforcement is off or the organization is a demo (everything unlocked). */
   enforced: boolean;
   bypassReason: "enforcement_off" | "demo" | null;
-  /** The Clerk user whose subscription decides the plan (the organization's owner). */
-  ownerClerkUserId: string | null;
-  ownerUserId: Id<"users"> | null;
+  /** Status that applies now (derived from time; see effectiveStatus). Null = no subscription. */
   subscriptionStatus: SubscriptionStatus | null;
+  planKey: PaidPlanKey | null;
+  source: "payment" | "trial" | "manual" | null;
   isFreeTrial: boolean;
   trialEndsAt: number | null;
   currentPeriodEnd: number | null;
-  /** When access ends if nothing changes (cancel at period end, or past-due grace). */
+  /** When access ends if nothing changes (end of the paid period, or of the grace after it). */
   accessEndsAt: number | null;
 };
-
-/** `users.tokenIdentifier` is `<issuer>|<clerk user id>`. */
-export function clerkUserIdOf(user: Pick<Doc<"users">, "tokenIdentifier">): string {
-  const i = user.tokenIdentifier.lastIndexOf("|");
-  return i >= 0 ? user.tokenIdentifier.slice(i + 1) : user.tokenIdentifier;
-}
-
-export async function findOwner(ctx: QueryCtx, organizationId: Id<"organizations">) {
-  const members = await ctx.db
-    .query("memberships")
-    .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
-    .take(500);
-  const owners = members
-    .filter((m) => m.role === "owner" && m.status === "active")
-    .sort((a, b) => a.createdAt - b.createdAt);
-  const first = owners[0];
-  return first ? await ctx.db.get(first.userId) : null;
-}
 
 const unlocked = (reason: "enforcement_off" | "demo"): OrgEntitlements => ({
   ...entitlementsForTier("enterprise"),
   enforced: false,
   bypassReason: reason,
-  ownerClerkUserId: null,
-  ownerUserId: null,
   subscriptionStatus: null,
+  planKey: null,
+  source: null,
   isFreeTrial: false,
   trialEndsAt: null,
   currentPeriodEnd: null,
@@ -89,31 +72,28 @@ export async function getOrgEntitlements(
 ): Promise<OrgEntitlements> {
   if (!billingEnforced()) return unlocked("enforcement_off");
   const org = await ctx.db.get(organizationId);
-  if (!org) return { ...unlocked("enforcement_off"), ...entitlementsForTier("free"), bypassReason: null, enforced: true };
+  const free = { ...unlocked("enforcement_off"), ...entitlementsForTier("free"), bypassReason: null, enforced: true };
+  if (!org) return free;
   if (org.isDemo) return unlocked("demo");
 
-  const owner = await findOwner(ctx, organizationId);
-  const base = {
-    enforced: true as const,
-    bypassReason: null,
-    ownerClerkUserId: owner ? clerkUserIdOf(owner) : null,
-    ownerUserId: owner?._id ?? null,
-  };
-  if (!owner) return { ...unlocked("enforcement_off"), ...entitlementsForTier("free"), ...base };
-  const rows = await ctx.db
+  const row = await ctx.db
     .query("subscriptions")
-    .withIndex("by_clerk_user", (q) => q.eq("clerkUserId", base.ownerClerkUserId!))
-    .take(50);
-  const { tier, row } = effectiveTier(rows, now);
+    .withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+    .unique();
+  const { tier, status } = tierForSubscription(row, now);
   let accessEndsAt: number | null = null;
-  if (row?.status === "canceled") accessEndsAt = row.currentPeriodEnd ?? null;
-  if (row?.status === "past_due") accessEndsAt = (row.pastDueAt ?? row.updatedAt) + PAST_DUE_GRACE_MS;
+  if (row && status === "active") accessEndsAt = row.currentPeriodEnd;
+  if (row && status === "past_due") accessEndsAt = row.currentPeriodEnd + PAST_DUE_GRACE_MS;
+  if (row && status === "trialing") accessEndsAt = row.trialEndsAt ?? row.currentPeriodEnd;
+  if (row && status === "canceled") accessEndsAt = row.currentPeriodEnd;
   return {
+    ...free,
     ...entitlementsForTier(tier),
-    ...base,
-    subscriptionStatus: row?.status ?? null,
-    isFreeTrial: row?.isFreeTrial ?? false,
-    trialEndsAt: row?.isFreeTrial ? (row.trialEndsAt ?? row.currentPeriodEnd ?? null) : null,
+    subscriptionStatus: status,
+    planKey: row?.planKey ?? null,
+    source: row?.source ?? null,
+    isFreeTrial: status === "trialing",
+    trialEndsAt: row?.trialEndsAt ?? null,
     currentPeriodEnd: row?.currentPeriodEnd ?? null,
     accessEndsAt,
   };

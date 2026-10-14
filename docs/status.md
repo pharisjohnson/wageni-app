@@ -156,17 +156,20 @@ Still limited: per-IP limiting covers the invitation functions only (kiosk calls
 - Platform console at 375px: the nav row sits under the title instead of being hidden; "Platform overview" back link shows on sub-pages; "Exit to app" works.
 - Kiosk (needs a seeded organization): at iPad portrait and landscape no tile is clipped; Back and Start over are at least 48px tall on every sub-screen; Tab shows a visible ring on the Visitor/Staff tiles; 90 seconds idle on a sub-screen returns to the welcome screen.
 
-## Plans, entitlements and billing (B1, Phase 7)
+## Plans, entitlements and billing (B1 + B2, Phase 7)
 
 | Area | Status |
 | --- | --- |
 | Entitlement model (tiers, features, limits as data), `lib/plans.ts` derived from it | Done |
-| Clerk Billing for users: owner's subscription = organization plan; `subscriptions` table; Svix-verified `POST /webhooks/clerk-billing` (idempotent, replay window, ordering) | Done (tests only) |
+| Subscriptions per **organization** (`subscriptions`), paid with PayHero M-Pesa (`billingPayments`); Clerk Billing removed | Done (tests only) |
+| PayHero STK push, unauthenticated callback treated as a hint + server-side status verification, idempotent apply, reconciliation cron, retry/abuse limits, dry-run provider behind a `PaymentProvider` interface | Done (tests with mocked `fetch`) |
+| Prices (`PLAN_PRICES_KES`) and trial length (`BUSINESS_TRIAL_DAYS`) | **Unset by design**: checkout is disabled until the owner decides prices |
+| Free Business trial (one per organization), renewal reminders (7/3/1 days), grace and downgrade, payment receipts | Done |
 | Enforcement (server): sites, gates, staff re-activation, custom forms (+count), audit log, custom retention, live notifications (dry-run on Starter, monthly cap), read-only extra sites after downgrade | Done; `BILLING_ENFORCEMENT` off by default |
-| Usage counters (visits, live messages, files) + `/app/billing` (plan, meters, Clerk `PricingTable`) + `/platform/usage` | Done |
+| `/app/billing` (plan, meters, M-Pesa checkout with live status, history, trial), `/platform/usage` with plan access and manual `grantPlan` (audit-logged) | Done |
 | `PLAN_LIMIT` error + upgrade prompts (toast action, `UpgradeNotice`, `FeatureGate`) | Done |
 | Operator checklist `docs/billing.md` | Done |
-| Tests: `tests/unit/billing.test.ts`, `tests/convex/billing.test.ts` | Passing |
-| Real Clerk/Stripe account, live webhook payloads, `PricingTable` rendering, billing UI in a browser | **Not done** (no account was used) |
-| Known launch risk: Clerk Billing fails 3D Secure payments; USD only; no M-Pesa, tax or refunds | See `docs/billing.md` |
+| Tests: `tests/unit/billing.test.ts`, `tests/unit/payments.test.ts`, `tests/convex/billing.test.ts`, `tests/convex/payhero.test.ts` | Passing |
+| **A real PayHero account, a real STK push or payment, PayHero's actual callback/status payloads, the billing UI in a browser** | **Not done** (none was used; response fields beyond PayHero's documented ones are untested) |
+| Known limits: KES only, no automatic recurring M-Pesa, cards not covered, no tax invoicing (check KRA/eTIMS with an accountant), refunds in PayHero | See `docs/billing.md` |
 | Not enforced: visits per month (metered only), outbound webhooks/integrations (no backend yet), gating of kiosk/check-in at over-limit sites | By design / later |
