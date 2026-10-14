@@ -44,19 +44,40 @@ export type ExpectedPayment = {
 
 export type Decision = "credit" | "failed" | "pending" | "mismatch";
 
+/** M-Pesa confirmation codes: 10 upper-case letters and digits. */
+const MPESA_CODE = /^[A-Z0-9]{10}$/;
+
+/**
+ * PayHero's docs say the `reference` it reports can also be the M-Pesa code.
+ * Returns that code when the answer's reference is NOT our PayHero reference but
+ * is an M-Pesa-shaped code AND the answer's CheckoutRequestID equals the one we
+ * stored (the binding to our payment). Otherwise null.
+ */
+export function mpesaCodeAsReference(expected: ExpectedPayment, result: VerifyResult): string | null {
+  const ref = result.reference?.toUpperCase();
+  if (!ref || !expected.payheroReference || ref === expected.payheroReference.toUpperCase()) return null;
+  if (!MPESA_CODE.test(ref)) return null;
+  if (!expected.checkoutRequestId || result.checkoutRequestId !== expected.checkoutRequestId) return null;
+  return ref;
+}
+
 /**
  * Decide what a provider verification means for OUR stored payment. Credits
  * only on an explicit success whose identifiers (and amount, if reported)
- * match what we recorded.
+ * match what we recorded. An answer that is about some other reference never
+ * fails our payment (it is simply ignored).
  */
 export function evaluateVerification(expected: ExpectedPayment, result: VerifyResult): Decision {
-  if (result.state === "failed") return "failed";
+  const refMatches =
+    !!expected.payheroReference && !!result.reference && result.reference.toUpperCase() === expected.payheroReference.toUpperCase();
+  const viaMpesaCode = !refMatches && mpesaCodeAsReference(expected, result) !== null;
+  const checkoutConflict =
+    !!expected.checkoutRequestId && !!result.checkoutRequestId && result.checkoutRequestId !== expected.checkoutRequestId;
+  const aboutUs = !result.reference || refMatches || viaMpesaCode;
+  if (result.state === "failed") return aboutUs && !checkoutConflict ? "failed" : "pending";
   if (result.state !== "success") return "pending";
-  if (!expected.payheroReference || !result.reference) return "mismatch";
-  if (result.reference.toUpperCase() !== expected.payheroReference.toUpperCase()) return "mismatch";
-  if (expected.checkoutRequestId && result.checkoutRequestId && result.checkoutRequestId !== expected.checkoutRequestId) {
-    return "mismatch";
-  }
+  if (!expected.payheroReference || !(refMatches || viaMpesaCode)) return "mismatch";
+  if (checkoutConflict) return "mismatch";
   if (typeof result.amountKes === "number" && result.amountKes !== expected.amountKes) return "mismatch";
   return "credit";
 }
@@ -78,6 +99,8 @@ export const PAYMENT_LIMITS = {
   maxConsecutiveFailuresPerPhone: 5,
   /** Failed attempts across the whole account in 6h before we pause new checkouts (PayHero restricts the account above 50). */
   globalFailuresPer6h: 40,
+  /** One organization counts for at most this many of those, so a single tenant cannot pause everyone. */
+  globalFailuresPerOrgCap: 3,
   /** Late successes are still looked for this long after an attempt. */
   lateSuccessWindowMs: 24 * 60 * 60 * 1000,
   /** Verification calls for one payment are at least this far apart (callback flooding guard). */

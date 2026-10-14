@@ -6,6 +6,7 @@ import { formatKes, priceFor } from "../lib/billing/pricing";
 import {
   evaluateVerification,
   hmacHex,
+  mpesaCodeAsReference,
   PAYMENT_LIMITS,
   randomToken,
   sha256Hex,
@@ -19,6 +20,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { writeAudit } from "./lib/audit";
 import { formatDate, notifyBillingManagers } from "./lib/billingNotify";
+import { billingEnforced } from "./lib/entitlements";
 import { appError } from "./lib/errors";
 import { vBillingPeriod, vPlanKey } from "./validators";
 
@@ -46,7 +48,14 @@ const NOT_CONFIGURED = "Payments are not set up yet. Please contact support.";
 
 /** The provider for NEW payments. Live mode needs its env vars, else checkout is refused. */
 export function providerConfig(): ProviderConfig {
-  if (paymentMode() === "dry-run") return { provider: createDryRunProvider(), callbackBase: null };
+  if (paymentMode() === "dry-run") {
+    // Dry-run never charges anyone, so with enforcement on it would only ever
+    // leave paying customers waiting. A production deployment that forgot
+    // PAYHERO_MODE must fail loudly instead of looking like it works.
+    if (billingEnforced() && process.env.ALLOW_DRY_RUN_BILLING !== "true") throw appError("VALIDATION", NOT_CONFIGURED);
+    return { provider: createDryRunProvider(), callbackBase: null };
+  }
+  if (!strongPepper()) throw appError("VALIDATION", NOT_CONFIGURED);
   const authToken = process.env.PAYHERO_AUTH_TOKEN;
   const channelId = Number(process.env.PAYHERO_CHANNEL_ID);
   const base = process.env.PAYHERO_CALLBACK_BASE?.trim().replace(/\/+$/, "");
@@ -63,8 +72,44 @@ function providerFor(name: "payhero" | "dry-run"): PaymentProvider | null {
   return authToken ? createPayheroProvider({ authToken, channelId: Number(process.env.PAYHERO_CHANNEL_ID) || 0 }) : null;
 }
 
+/**
+ * Secret key for the phone-number hashes. Kenyan mobile numbers are a small
+ * space, so an unkeyed or guessable-key hash could be reversed by enumeration:
+ * live mode therefore REQUIRES a long random BILLING_HASH_PEPPER (no fallback
+ * to anything else). Dry-run uses a fixed development key.
+ */
+function strongPepper(): string | null {
+  const p = process.env.BILLING_HASH_PEPPER?.trim();
+  return p && p.length >= 16 ? p : null;
+}
+
 function pepper(): string {
-  return process.env.BILLING_HASH_PEPPER ?? process.env.PAYHERO_AUTH_TOKEN ?? "wageni-dev-pepper";
+  return strongPepper() ?? (paymentMode() === "live" ? "" : "wageni-dev-pepper");
+}
+
+/** Unsafe or incomplete billing configuration, for the platform page (no secrets, only names). */
+export function billingHealth(): { mode: PaymentMode; enforcement: boolean; warnings: string[] } {
+  const mode = paymentMode();
+  const enforcement = billingEnforced();
+  const warnings: string[] = [];
+  if (enforcement && mode === "dry-run") {
+    warnings.push(
+      process.env.ALLOW_DRY_RUN_BILLING === "true"
+        ? "Plan enforcement is ON but PAYHERO_MODE is not live and ALLOW_DRY_RUN_BILLING=true: payments are recorded but never charged. Remove ALLOW_DRY_RUN_BILLING and set PAYHERO_MODE=live."
+        : "Plan enforcement is ON but PAYHERO_MODE is not live: customers cannot pay and checkout is refused. Set PAYHERO_MODE=live and the PayHero variables.",
+    );
+  }
+  if (process.env.ALLOW_BILLING_SIMULATION === "true") {
+    warnings.push("ALLOW_BILLING_SIMULATION=true: remove it on any deployment with real customers.");
+  }
+  if (mode === "live") {
+    if (!strongPepper()) warnings.push("BILLING_HASH_PEPPER is missing or shorter than 16 characters: live checkout is refused.");
+    if (!process.env.PAYHERO_AUTH_TOKEN || !process.env.PAYHERO_CHANNEL_ID || !process.env.PAYHERO_CALLBACK_BASE) {
+      warnings.push("PAYHERO_AUTH_TOKEN, PAYHERO_CHANNEL_ID or PAYHERO_CALLBACK_BASE is missing: live checkout is refused.");
+    }
+    if (!enforcement) warnings.push("PAYHERO_MODE is live but BILLING_ENFORCEMENT is not on: payments work but plans are not enforced.");
+  }
+  return { mode, enforcement, warnings };
 }
 
 const HOUR = 60 * 60 * 1000;
@@ -203,15 +248,21 @@ export const createPending = internalMutation({
     if (streak >= L.maxConsecutiveFailuresPerPhone) {
       throw appError("RATE_LIMITED", "This phone number has had several unfinished payments. Please try again tomorrow or use another number.");
     }
-    let globalFailures = 0;
+    // Account-wide circuit breaker. Each organization counts for at most a few
+    // failures (so one tenant cannot pause everyone), and a customer that has
+    // already paid us (an active payment-sourced subscription) is never paused.
+    const perOrg = new Map<string, number>();
     for (const s of FAILED) {
       const rows = await ctx.db
         .query("billingPayments")
         .withIndex("by_status_created", (q) => q.eq("status", s).gte("createdAt", now - 6 * HOUR))
-        .take(L.globalFailuresPer6h);
-      globalFailures += rows.length;
+        .take(300);
+      for (const r of rows) perOrg.set(r.organizationId, (perOrg.get(r.organizationId) ?? 0) + 1);
     }
-    if (globalFailures >= L.globalFailuresPer6h) {
+    let globalFailures = 0;
+    for (const n of perOrg.values()) globalFailures += Math.min(n, L.globalFailuresPerOrgCap);
+    const isPayingCustomer = sub?.source === "payment";
+    if (globalFailures >= L.globalFailuresPer6h && !isPayingCustomer) {
       throw appError("RATE_LIMITED", "Payments are temporarily paused. Please try again in a few hours.");
     }
 
@@ -238,7 +289,20 @@ export const markInitiated = internalMutation({
   args: { paymentId: v.id("billingPayments"), reference: v.string(), checkoutRequestId: v.optional(v.string()) },
   handler: async (ctx, { paymentId, reference, checkoutRequestId }) => {
     const p = await ctx.db.get(paymentId);
-    if (!p || p.status !== "pending") return;
+    // Kept even when the payer already cancelled: a late success must stay verifiable.
+    if (!p || p.status === "success" || p.payheroReference) return;
+    // One PayHero reference belongs to exactly one payment. A reused reference
+    // (a provider bug, or something stranger) must never be able to credit twice.
+    const clash = await ctx.db
+      .query("billingPayments")
+      .withIndex("by_reference", (q) => q.eq("payheroReference", reference))
+      .first();
+    if (clash && clash._id !== paymentId) {
+      if (p.status === "pending") {
+        await ctx.db.patch(paymentId, { status: "failed", failureReason: "reference_reused", resolvedAt: Date.now() });
+      }
+      return;
+    }
     await ctx.db.patch(paymentId, { payheroReference: reference, checkoutRequestId });
   },
 });
@@ -310,7 +374,26 @@ export const recordVerification = internalMutation({
     if (p.status === "success" || p.appliedAt !== undefined) return "duplicate";
     const decision = evaluateVerification(p, result as VerifyResult);
     if (decision === "credit") {
-      await applySuccess(ctx, p, result.receipt ?? receiptHint);
+      // One real transaction can pay for one payment only: neither the PayHero
+      // reference nor the M-Pesa receipt may already belong to another payment.
+      const viaCode = mpesaCodeAsReference(p, result as VerifyResult);
+      const providerReceipt = result.receipt ?? viaCode ?? undefined;
+      const refOwners = p.payheroReference
+        ? await ctx.db
+            .query("billingPayments")
+            .withIndex("by_reference", (q) => q.eq("payheroReference", p.payheroReference))
+            .take(3)
+        : [];
+      const receiptTaken = async (code: string) =>
+        (await ctx.db.query("billingPayments").withIndex("by_receipt", (q) => q.eq("mpesaReceipt", code)).take(2)).some(
+          (r) => r._id !== p._id,
+        );
+      if (refOwners.some((r) => r._id !== p._id) || (providerReceipt && (await receiptTaken(providerReceipt)))) {
+        return await markMismatch(ctx, p);
+      }
+      // The callback's receipt is only a display hint: drop it if someone else owns it.
+      const hint = receiptHint && !providerReceipt && !(await receiptTaken(receiptHint)) ? receiptHint : undefined;
+      await applySuccess(ctx, p, providerReceipt ?? hint);
       return "applied";
     }
     if (decision === "failed") {
@@ -320,20 +403,23 @@ export const recordVerification = internalMutation({
       }
       return "failed";
     }
-    if (decision === "mismatch") {
-      await ctx.db.patch(paymentId, { status: "failed", failureReason: "verification_mismatch", resolvedAt: Date.now() });
-      await writeAudit(ctx, {
-        organizationId: p.organizationId,
-        action: "billing.payment_mismatch",
-        resourceType: "billingPayment",
-        resourceId: p._id,
-        metadata: { amountKes: p.amountKes },
-      });
-      return "mismatch";
-    }
+    if (decision === "mismatch") return await markMismatch(ctx, p);
     return "pending";
   },
 });
+
+/** A success that does not match our record: never credited, closed and audited for the operator. */
+async function markMismatch(ctx: MutationCtx, p: Doc<"billingPayments">): Promise<"mismatch"> {
+  await ctx.db.patch(p._id, { status: "failed", failureReason: "verification_mismatch", resolvedAt: Date.now() });
+  await writeAudit(ctx, {
+    organizationId: p.organizationId,
+    action: "billing.payment_mismatch",
+    resourceType: "billingPayment",
+    resourceId: p._id,
+    metadata: { amountKes: p.amountKes },
+  });
+  return "mismatch";
+}
 
 /**
  * Credit a verified payment: create or extend the organization's

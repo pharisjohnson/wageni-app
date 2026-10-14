@@ -23,7 +23,9 @@ const ENV_KEYS = [
   "BILLING_ENFORCEMENT",
   "ALLOW_BILLING_SIMULATION",
   "BILLING_HASH_PEPPER",
+  "ALLOW_DRY_RUN_BILLING",
 ];
+const PEPPER = "pepper_secret_value_0123456789abcdef";
 
 /** A scripted PayHero: records requests, answers STK pushes and status checks. */
 function fakePayhero() {
@@ -32,6 +34,7 @@ function fakePayhero() {
     gets: [] as string[],
     status: new Map<string, Record<string, unknown>>(),
     initiate: "ok" as "ok" | "down" | "reject",
+    fixedRef: null as string | null,
     n: 0,
   };
   const fn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -43,7 +46,7 @@ function fakePayhero() {
       if (state.initiate === "reject") return new Response("{}", { status: 400 });
       state.n++;
       return new Response(
-        JSON.stringify({ success: true, status: "QUEUED", reference: `REF${state.n}ABCDEF`, CheckoutRequestID: `ws_CO_${state.n}` }),
+        JSON.stringify({ success: true, status: "QUEUED", reference: state.fixedRef ?? `REF${state.n}ABCDEF`, CheckoutRequestID: `ws_CO_${state.n}` }),
         { status: 201 },
       );
     }
@@ -87,6 +90,7 @@ const live = () => {
   process.env.PAYHERO_CHANNEL_ID = "133";
   process.env.PAYHERO_CALLBACK_BASE = "https://happy-otter-1.convex.site/";
   process.env.BILLING_ENFORCEMENT = "on";
+  process.env.BILLING_HASH_PEPPER = PEPPER;
 };
 
 async function setup(slug = "acme") {
@@ -309,7 +313,7 @@ describe("retry and abuse limits", () => {
     live();
     const ph = fakePayhero();
     const o = await setup();
-    const phoneHash = await hmacHex("tok_secret_abc", E164);
+    const phoneHash = await hmacHex(PEPPER, E164);
     await o.t.run(async (ctx) => {
       for (let i = 0; i < 5; i++) {
         await ctx.db.insert("billingPayments", {
@@ -338,30 +342,71 @@ describe("retry and abuse limits", () => {
     expect((await checkout(o)).status).toBe("pending");
   });
 
-  test("an account-wide failure surge pauses new checkouts", async () => {
+  const failedRow = (orgId: Id<"organizations">, userId: Id<"users">, i: number, tag: string) => ({
+    organizationId: orgId,
+    planKey: "business" as const,
+    period: "monthly" as const,
+    amountKes: 1000,
+    provider: "payhero" as const,
+    phoneLast4: "0000",
+    phoneHash: `${tag}p${i}`,
+    externalReference: `${tag}g${i}`,
+    callbackTokenHash: `${tag}gh${i}`,
+    status: "failed" as const,
+    createdBy: userId,
+    createdAt: Date.now() - 2 * 60 * MIN,
+  });
+
+  test("an account-wide failure surge across many organizations pauses new checkouts", async () => {
     live();
     const ph = fakePayhero();
     const o = await setup();
+    const others: Awaited<ReturnType<typeof createOrgWithOwner>>[] = [];
+    for (let k = 0; k < 14; k++) others.push(await createOrgWithOwner(o.t, `org${k}`, `org-${k}`));
     await o.t.run(async (ctx) => {
-      for (let i = 0; i < 40; i++) {
-        await ctx.db.insert("billingPayments", {
-          organizationId: o.organizationId,
-          planKey: "business",
-          period: "monthly",
-          amountKes: 1000,
-          provider: "payhero",
-          phoneLast4: "0000",
-          phoneHash: `p${i}`,
-          externalReference: `g${i}`,
-          callbackTokenHash: `gh${i}`,
-          status: "failed",
-          createdBy: o.owner.userId,
-          createdAt: Date.now() - 2 * 60 * MIN,
-        });
+      for (const [k, x] of others.entries()) {
+        for (let i = 0; i < 3; i++) await ctx.db.insert("billingPayments", failedRow(x.organizationId, x.owner.userId, i, `o${k}`));
       }
     });
     await expectCode(checkout(o), "RATE_LIMITED");
     expect(ph.fn).not.toHaveBeenCalled();
+  });
+
+  test("one tenant's failures cannot pause payments for everyone (each organization counts for at most 3)", async () => {
+    live();
+    const ph = fakePayhero();
+    const o = await setup();
+    const bad = await createOrgWithOwner(o.t, "bad", "bad");
+    await o.t.run(async (ctx) => {
+      for (let i = 0; i < 100; i++) await ctx.db.insert("billingPayments", failedRow(bad.organizationId, bad.owner.userId, i, "b"));
+    });
+    expect((await checkout(o)).status).toBe("pending");
+    expect(ph.state.posts).toHaveLength(1);
+  });
+
+  test("a paying customer can still renew during an account-wide pause", async () => {
+    live();
+    fakePayhero();
+    const o = await setup();
+    const others: Awaited<ReturnType<typeof createOrgWithOwner>>[] = [];
+    for (let k = 0; k < 14; k++) others.push(await createOrgWithOwner(o.t, `org${k}`, `org-${k}`));
+    await o.t.run(async (ctx) => {
+      for (const [k, x] of others.entries()) {
+        for (let i = 0; i < 3; i++) await ctx.db.insert("billingPayments", failedRow(x.organizationId, x.owner.userId, i, `o${k}`));
+      }
+      await ctx.db.insert("subscriptions", {
+        organizationId: o.organizationId,
+        planKey: "business",
+        period: "monthly",
+        status: "active",
+        currentPeriodStart: Date.now() - DAY,
+        currentPeriodEnd: Date.now() + 5 * DAY,
+        source: "payment",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    expect((await checkout(o)).status).toBe("pending");
   });
 
   test("at most 6 attempts per organization per hour", async () => {
@@ -653,6 +698,7 @@ describe("queries and tenant isolation", () => {
 describe("dry-run provider (the default)", () => {
   test("records the payment without any network call; only the dev simulator can settle it", async () => {
     process.env.BILLING_ENFORCEMENT = "on";
+    process.env.ALLOW_DRY_RUN_BILLING = "true";
     const ph = fakePayhero();
     const o = await setup();
     const { paymentId, status } = await checkout(o);
@@ -974,6 +1020,217 @@ describe("Clerk Billing is gone", () => {
     const t = newTest();
     const res = await t.fetch("/webhooks/clerk-billing", { method: "POST", body: "{}" });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("H2 adversarial review", () => {
+  test("production guard: with enforcement on, dry-run checkout is refused unless ALLOW_DRY_RUN_BILLING=true", async () => {
+    process.env.BILLING_ENFORCEMENT = "on";
+    const ph = fakePayhero();
+    const o = await setup();
+    await expectCode(checkout(o), "VALIDATION"); // PAYHERO_MODE unset in a "production" config
+    expect(await payments(o.t)).toHaveLength(0);
+    expect(ph.fn).not.toHaveBeenCalled();
+    process.env.ALLOW_DRY_RUN_BILLING = "true";
+    expect((await checkout(o)).status).toBe("pending");
+  });
+
+  test("dry-run still works while enforcement is off (development)", async () => {
+    fakePayhero();
+    const o = await setup();
+    expect((await checkout(o)).status).toBe("pending");
+  });
+
+  test("the platform page is warned about an unsafe billing configuration", async () => {
+    process.env.BILLING_ENFORCEMENT = "on";
+    process.env.ALLOW_DRY_RUN_BILLING = "true";
+    process.env.ALLOW_BILLING_SIMULATION = "true";
+    const o = await setup();
+    const admin = await signIn(o.t, "root");
+    await o.t.run(async (ctx) => ctx.db.patch(admin.userId, { platformRole: "super_admin" }));
+    const res = await admin.as.query(api.billing.platformBillingHealth, {});
+    expect(res.mode).toBe("dry-run");
+    expect(res.warnings.length).toBeGreaterThanOrEqual(2);
+    live();
+    const ok = await admin.as.query(api.billing.platformBillingHealth, {});
+    expect(ok.warnings.some((w: string) => /dry-run/i.test(w))).toBe(false);
+  });
+
+  test("live mode refuses to run without a strong BILLING_HASH_PEPPER (phone hashes must not be guessable)", async () => {
+    live();
+    delete process.env.BILLING_HASH_PEPPER;
+    const ph = fakePayhero();
+    const o = await setup();
+    await expectCode(checkout(o), "VALIDATION");
+    process.env.BILLING_HASH_PEPPER = "short";
+    await expectCode(checkout(o), "VALIDATION");
+    expect(ph.fn).not.toHaveBeenCalled();
+  });
+
+  test("one PayHero reference can only ever belong to one payment (reference reuse)", async () => {
+    live();
+    const ph = fakePayhero();
+    ph.state.fixedRef = "REUSEDREF1";
+    const a = await setup("alpha");
+    const b = await createOrgWithOwner(a.t, "beta", "beta");
+    await checkout(a);
+    await b.owner.as.action(api.billing.startCheckout, { organizationId: b.organizationId, planKey: "business", period: "monthly", phone: "0722000111" });
+    const rows = await payments(a.t);
+    expect(rows.filter((r) => r.payheroReference === "REUSEDREF1")).toHaveLength(1);
+    expect(rows.find((r) => r.organizationId === b.organizationId)).toMatchObject({ status: "failed", failureReason: "reference_reused" });
+  });
+
+  test("one M-Pesa receipt can credit only one payment, even across organizations", async () => {
+    live();
+    const ph = fakePayhero();
+    const a = await setup("alpha");
+    const b = await createOrgWithOwner(a.t, "beta", "beta");
+    await checkout(a);
+    await b.owner.as.action(api.billing.startCheckout, { organizationId: b.organizationId, planKey: "business", period: "monthly", phone: "0722000111" });
+    ph.report("REF1ABCDEF", { status: "SUCCESS", CheckoutRequestID: "ws_CO_1", provider_reference: "RGH1234ABC" });
+    ph.report("REF2ABCDEF", { status: "SUCCESS", CheckoutRequestID: "ws_CO_2", provider_reference: "RGH1234ABC" });
+    await post(a.t, tokenOf(ph, 0), callbackBody());
+    await post(a.t, tokenOf(ph, 1), callbackBody());
+    const subsNow = await subs(a.t);
+    expect(subsNow).toHaveLength(1);
+    expect(subsNow[0]!.organizationId).toBe(a.organizationId);
+    const second = (await payments(a.t)).find((p) => p.organizationId === b.organizationId)!;
+    expect(second).toMatchObject({ status: "failed", failureReason: "verification_mismatch" });
+    expect(await audits(a.t, "billing.payment_mismatch")).toHaveLength(1);
+  });
+
+  test("a receipt hint taken from the callback body is dropped if another payment already owns that receipt", async () => {
+    live();
+    const ph = fakePayhero();
+    const a = await setup("alpha");
+    const b = await createOrgWithOwner(a.t, "beta", "beta");
+    await checkout(a);
+    await b.owner.as.action(api.billing.startCheckout, { organizationId: b.organizationId, planKey: "business", period: "monthly", phone: "0722000111" });
+    ph.report("REF1ABCDEF", { status: "SUCCESS", CheckoutRequestID: "ws_CO_1", provider_reference: "RGH1234ABC" });
+    await post(a.t, tokenOf(ph, 0), callbackBody());
+    ph.report("REF2ABCDEF", { status: "SUCCESS", CheckoutRequestID: "ws_CO_2" }); // no receipt from PayHero
+    await post(a.t, tokenOf(ph, 1), callbackBody({ MpesaReceiptNumber: "RGH1234ABC" })); // attacker-supplied
+    const second = (await payments(a.t)).find((p) => p.organizationId === b.organizationId)!;
+    expect(second.status).toBe("success");
+    expect(second.mpesaReceipt).toBeUndefined();
+  });
+
+  test("when PayHero answers with the M-Pesa code as `reference`, the matching CheckoutRequestID still binds it to our payment", async () => {
+    live();
+    const ph = fakePayhero();
+    const o = await setup();
+    await checkout(o);
+    ph.report("REF1ABCDEF", { status: "SUCCESS", reference: "RGH1234ABC", CheckoutRequestID: "ws_CO_1" });
+    await post(o.t, tokenOf(ph), callbackBody());
+    expect((await payments(o.t))[0]).toMatchObject({ status: "success", mpesaReceipt: "RGH1234ABC" });
+    expect(await subs(o.t)).toHaveLength(1);
+  });
+
+  test("an M-Pesa-code `reference` without a matching CheckoutRequestID is never credited", async () => {
+    live();
+    const ph = fakePayhero();
+    const o = await setup();
+    await checkout(o);
+    ph.report("REF1ABCDEF", { status: "SUCCESS", reference: "RGH1234ABC", CheckoutRequestID: "ws_CO_999" });
+    await post(o.t, tokenOf(ph), callbackBody());
+    expect(await subs(o.t)).toHaveLength(0);
+    ph.report("REF1ABCDEF", { status: "SUCCESS", reference: "RGH1234ABC" });
+    await unthrottle(o.t);
+    await o.t.run(async (ctx) => {
+      const [p] = await ctx.db.query("billingPayments").collect();
+      await ctx.db.patch(p!._id, { status: "pending", failureReason: undefined });
+    });
+    await post(o.t, tokenOf(ph), callbackBody());
+    expect(await subs(o.t)).toHaveLength(0);
+  });
+
+  test("a FAILED answer about some other reference does not fail our payment", async () => {
+    live();
+    const ph = fakePayhero();
+    const o = await setup();
+    await checkout(o);
+    ph.report("REF1ABCDEF", { status: "FAILED", reference: "SOMEONEELSE" });
+    await post(o.t, tokenOf(ph), callbackBody());
+    expect((await payments(o.t))[0]!.status).toBe("pending");
+  });
+
+  test("a payment cancelled in the instant before PayHero answered still records its reference, so a late success is honoured", async () => {
+    live();
+    const ph = fakePayhero();
+    const o = await setup();
+    await checkout(o);
+    const [p] = await payments(o.t);
+    await o.t.run(async (ctx) => ctx.db.patch(p!._id, { status: "cancelled", payheroReference: undefined, checkoutRequestId: undefined }));
+    await o.t.mutation(internal.billingPayhero.markInitiated, { paymentId: p!._id, reference: "REF1ABCDEF", checkoutRequestId: "ws_CO_1" });
+    expect((await payments(o.t))[0]!.payheroReference).toBe("REF1ABCDEF");
+    ph.report("REF1ABCDEF", { status: "SUCCESS", CheckoutRequestID: "ws_CO_1", provider_reference: "RGH1234ABC" });
+    await post(o.t, tokenOf(ph), callbackBody());
+    expect((await payments(o.t))[0]!.status).toBe("success");
+  });
+
+  test("concurrent duplicate callbacks and a reconcile run credit exactly once", async () => {
+    live();
+    const ph = fakePayhero();
+    const o = await setup();
+    await checkout(o);
+    ph.report("REF1ABCDEF", { status: "SUCCESS", CheckoutRequestID: "ws_CO_1", provider_reference: "RGH1234ABC" });
+    await age(o.t, 40_000);
+    const token = tokenOf(ph);
+    const paymentId = (await payments(o.t))[0]!._id;
+    await Promise.all([
+      ...Array.from({ length: 6 }, () => post(o.t, token, callbackBody())),
+      o.t.action(internal.billingPayhero.reconcile, {}),
+      o.t.action(internal.billingPayhero.verify, { paymentId }),
+    ]);
+    const [sub] = await subs(o.t);
+    expect(await subs(o.t)).toHaveLength(1);
+    expect(sub!.currentPeriodEnd - sub!.currentPeriodStart).toBe(30 * DAY);
+    expect(await audits(o.t, "billing.payment_applied")).toHaveLength(1);
+    expect(await outbox(o.t, "billing_payment_received")).toHaveLength(1);
+  });
+
+  test("an oversized body is rejected before any provider call, and a replay after success asks PayHero nothing", async () => {
+    live();
+    const ph = fakePayhero();
+    const o = await setup();
+    await checkout(o);
+    const token = tokenOf(ph);
+    expect((await post(o.t, token, JSON.stringify({ pad: "x".repeat(9000) }))).status).toBe(400);
+    expect((await post(o.t, token, "not json")).status).toBe(400);
+    expect(ph.state.gets).toHaveLength(0);
+    ph.report("REF1ABCDEF", { status: "SUCCESS", CheckoutRequestID: "ws_CO_1", provider_reference: "RGH1234ABC" });
+    await post(o.t, token, callbackBody());
+    const asked = ph.state.gets.length;
+    for (let i = 0; i < 3; i++) await post(o.t, token, callbackBody());
+    expect(ph.state.gets).toHaveLength(asked);
+  });
+
+  test("another organization's payment id reads as not found for status, cancel and simulate", async () => {
+    live();
+    fakePayhero();
+    const a = await setup("alpha");
+    const b = await createOrgWithOwner(a.t, "beta", "beta");
+    const { paymentId } = await checkout(a);
+    await expectCode(b.owner.as.query(api.billing.paymentStatus, { organizationId: b.organizationId, paymentId }), "NOT_FOUND");
+    await expectCode(b.owner.as.mutation(api.billing.cancelPayment, { organizationId: b.organizationId, paymentId }), "NOT_FOUND");
+    process.env.ALLOW_BILLING_SIMULATION = "true";
+    await expectCode(
+      b.owner.as.mutation(api.billing.simulatePayment, { organizationId: b.organizationId, paymentId, outcome: "success" }),
+      "NOT_FOUND",
+    );
+  });
+
+  test("grantPlan rejects bad dates, empty or oversized reasons, and non-admins", async () => {
+    const o = await setup();
+    const admin = await signIn(o.t, "root");
+    await o.t.run(async (ctx) => ctx.db.patch(admin.userId, { platformRole: "super_admin" }));
+    const base = { organizationId: o.organizationId, planKey: "business" as const };
+    await expectCode(o.owner.as.mutation(api.platform.grantPlan, { ...base, until: Date.now() + DAY, reason: "friendly" }), "FORBIDDEN");
+    await expectCode(admin.as.mutation(api.platform.grantPlan, { ...base, until: Date.now() + DAY, reason: "x" }), "VALIDATION");
+    await expectCode(admin.as.mutation(api.platform.grantPlan, { ...base, until: Date.now() + DAY, reason: "y".repeat(501) }), "VALIDATION");
+    await expectCode(admin.as.mutation(api.platform.grantPlan, { ...base, until: Date.now() - DAY, reason: "friendly" }), "VALIDATION");
+    await expectCode(admin.as.mutation(api.platform.grantPlan, { ...base, until: Date.now() + 6 * 366 * DAY, reason: "friendly" }), "VALIDATION");
+    await expectCode(admin.as.mutation(api.platform.grantPlan, { ...base, until: Number.NaN, reason: "friendly" }), "VALIDATION");
   });
 });
 

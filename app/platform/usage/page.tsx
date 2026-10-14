@@ -1,6 +1,6 @@
 "use client";
 
-import { usePaginatedQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { PageHeader } from "@/components/layout/page-header";
 import { GrantPlan } from "@/components/platform/grant-plan";
 import { Badge } from "@/components/ui/badge";
@@ -14,12 +14,23 @@ const of = (used: number, limit: Limit) => (limit === null ? `${used}` : `${used
 
 export default function PlatformUsagePage() {
   const { results, status, loadMore } = usePaginatedQuery(api.billing.platformUsage, {}, { initialNumItems: 25 });
+  const health = useQuery(api.billing.platformBillingHealth, {});
   return (
     <>
       <PageHeader
         title="Usage"
         description="Plan and usage counts per organization for the current month (UTC). Counts only: no visitor or staff data."
       />
+      {health && health.warnings.length > 0 && (
+        <div role="alert" className="rounded-xl border border-destructive/50 bg-destructive/10 p-4 text-sm">
+          <p className="font-semibold">Billing configuration needs attention ({health.mode} mode)</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            {health.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {status === "LoadingFirstPage" ? (
         <Skeleton className="h-40 w-full" />
       ) : (
