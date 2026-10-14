@@ -2,6 +2,7 @@ import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { writeAudit } from "./audit";
 import { appError } from "./errors";
+import { logEvent } from "./log";
 import { takePublicLimit } from "./publicLimit";
 import type { KioskContext } from "./kiosk";
 import { recordFailure, throttleLocked, type ThrottleConfig, type ThrottleState } from "./throttle";
@@ -59,6 +60,7 @@ export async function recordLookupFailure(ctx: MutationCtx, device: Doc<"kioskDe
     lookupLastLockAt: state.lastLockAt,
   });
   if (locked) {
+    logEvent("warn", { event: "kiosk_lookup_locked", fn: "kioskLookup", outcome: "locked", org: device.organizationId, count: state.level ?? 1 });
     await writeAudit(ctx, {
       organizationId: device.organizationId,
       kioskDeviceId: device._id,

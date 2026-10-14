@@ -3,6 +3,7 @@ import { customMutation, customQuery } from "convex-helpers/server/customFunctio
 import type { Doc } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { appError } from "./errors";
+import { logEvent } from "./log";
 
 /**
  * Kiosk trust. /kiosk/<slug> is a public URL, so the URL alone never
@@ -95,7 +96,10 @@ async function meter(ctx: MutationCtx, device: Doc<"kioskDevices">) {
   const windowStart = device.rateWindowStart;
   const inWindow = windowStart !== undefined && now - windowStart < KIOSK_RATE_WINDOW_MS;
   const count = inWindow ? (device.rateCount ?? 0) : 0;
-  if (count >= KIOSK_RATE_MAX_PER_WINDOW) throw appError("RATE_LIMITED");
+  if (count >= KIOSK_RATE_MAX_PER_WINDOW) {
+    logEvent("warn", { event: "rate_limited", fn: "kiosk.meter", outcome: "rejected", org: device.organizationId, code: "RATE_LIMITED" });
+    throw appError("RATE_LIMITED");
+  }
   const patch: Partial<Doc<"kioskDevices">> = inWindow
     ? { rateCount: count + 1 }
     : { rateWindowStart: now, rateCount: 1 };

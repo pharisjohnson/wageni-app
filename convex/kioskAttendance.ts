@@ -7,6 +7,7 @@ import {
 import { effectivePermissions } from "../lib/permissions";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
+import { logEvent } from "./lib/log";
 import { checkClock, currentState, insertEvent } from "./lib/attendance";
 import { hasSiteAccess } from "./lib/auth";
 import { writeAudit } from "./lib/audit";
@@ -68,6 +69,7 @@ async function recordDeviceFailure(ctx: MutationCtx & { kiosk: KioskContext }) {
     pinLastLockAt: state.lastLockAt,
   });
   if (locked) {
+    logEvent("warn", { event: "kiosk_pin_throttled", fn: "kioskAttendance", outcome: "locked", org: ctx.kiosk.org._id, count: state.level ?? 1 });
     await writeAudit(ctx, {
       organizationId: ctx.kiosk.org._id,
       kioskDeviceId: device._id,

@@ -44,6 +44,7 @@ import type * as lib_invitationHooks from "../lib/invitationHooks.js";
 import type * as lib_invitationToken from "../lib/invitationToken.js";
 import type * as lib_kiosk from "../lib/kiosk.js";
 import type * as lib_kioskLookup from "../lib/kioskLookup.js";
+import type * as lib_log from "../lib/log.js";
 import type * as lib_notify from "../lib/notify.js";
 import type * as lib_pin from "../lib/pin.js";
 import type * as lib_policy from "../lib/policy.js";
@@ -119,6 +120,7 @@ import type * as visits from "../visits.js";
 "lib/invitationToken": typeof lib_invitationToken,
 "lib/kiosk": typeof lib_kiosk,
 "lib/kioskLookup": typeof lib_kioskLookup,
+"lib/log": typeof lib_log,
 "lib/notify": typeof lib_notify,
 "lib/pin": typeof lib_pin,
 "lib/policy": typeof lib_policy,
