@@ -14,7 +14,8 @@ import type * as attendance from "../attendance.js";
 import type * as attendancePins from "../attendancePins.js";
 import type * as audit from "../audit.js";
 import type * as billing from "../billing.js";
-import type * as billingWebhook from "../billingWebhook.js";
+import type * as billingLifecycle from "../billingLifecycle.js";
+import type * as billingPayhero from "../billingPayhero.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as files from "../files.js";
@@ -33,6 +34,7 @@ import type * as kioskVisitor from "../kioskVisitor.js";
 import type * as lib_attendance from "../lib/attendance.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_billingNotify from "../lib/billingNotify.js";
 import type * as lib_entitlements from "../lib/entitlements.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_files from "../lib/files.js";
@@ -86,7 +88,8 @@ import type * as visits from "../visits.js";
 "attendancePins": typeof attendancePins,
 "audit": typeof audit,
 "billing": typeof billing,
-"billingWebhook": typeof billingWebhook,
+"billingLifecycle": typeof billingLifecycle,
+"billingPayhero": typeof billingPayhero,
 "crons": typeof crons,
 "dashboard": typeof dashboard,
 "files": typeof files,
@@ -105,6 +108,7 @@ import type * as visits from "../visits.js";
 "lib/attendance": typeof lib_attendance,
 "lib/audit": typeof lib_audit,
 "lib/auth": typeof lib_auth,
+"lib/billingNotify": typeof lib_billingNotify,
 "lib/entitlements": typeof lib_entitlements,
 "lib/errors": typeof lib_errors,
 "lib/files": typeof lib_files,

@@ -1,5 +1,5 @@
 import { httpRouter } from "convex/server";
-import { verifySvix } from "../lib/billing/svix";
+import { isCallbackTokenShape, MAX_CALLBACK_BYTES, sha256Hex } from "../lib/billing/provider";
 import { RECEIPT_STATUSES, verifyWebhook, type ReceiptStatus } from "../lib/notifications/webhook";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -59,39 +59,32 @@ http.route({
   }),
 });
 
-// --- B1: Clerk Billing webhooks (Svix-signed). Env `CLERK_WEBHOOK_SECRET` (whsec_...).
-// Unset = the route does not exist (404). Every rejection is the same generic 4xx.
-const MAX_BILLING_BODY_BYTES = 256 * 1024;
-
+// --- B2: PayHero M-Pesa payment callback.
+// PayHero's callback is NOT signed, so this route treats the body as an
+// untrusted hint: it finds the payment by the secret random token in the URL
+// (stored hashed), asks PayHero's status API whether the payment really
+// succeeded, and only then credits it (see convex/billingPayhero.ts). Every
+// well-formed request gets the same answer, whatever it matched.
 http.route({
-  path: "/webhooks/clerk-billing",
+  pathPrefix: "/webhooks/payhero/",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const secret = process.env.CLERK_WEBHOOK_SECRET;
-    if (!secret) return reply(404);
+    const token = new URL(request.url).pathname.slice("/webhooks/payhero/".length);
+    if (!isCallbackTokenShape(token)) return reply(404);
     const declared = Number(request.headers.get("content-length") ?? "0");
-    if (declared > MAX_BILLING_BODY_BYTES) return reply(400, { error: "invalid_request" });
-    const body = await request.text();
-    if (body.length > MAX_BILLING_BODY_BYTES) return reply(400, { error: "invalid_request" });
-    const id = request.headers.get("svix-id");
-    const valid = await verifySvix({
-      secret,
-      id,
-      timestamp: request.headers.get("svix-timestamp"),
-      signature: request.headers.get("svix-signature"),
-      body,
-    });
-    if (!valid || !id) return reply(401, { error: "invalid_request" });
-    let payload: unknown;
+    if (declared > MAX_CALLBACK_BYTES) return reply(400, { error: "invalid_request" });
+    const text = await request.text();
+    if (text.length > MAX_CALLBACK_BYTES) return reply(400, { error: "invalid_request" });
+    let body: unknown = null;
     try {
-      payload = JSON.parse(body);
+      body = JSON.parse(text);
     } catch {
       return reply(400, { error: "invalid_request" });
     }
-    await ctx.runMutation(internal.billingWebhook.applyEvent, { eventId: id, payload });
+    await ctx.runAction(internal.billingPayhero.handleCallback, { tokenHash: await sha256Hex(token), body });
     return reply(200, { ok: true });
   }),
 });
-// --- end B1
+// --- end B2
 
 export default http;

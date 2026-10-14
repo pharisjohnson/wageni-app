@@ -29,6 +29,10 @@ import {
   vChannel,
   vNotificationStatus,
   vSubscriptionStatus,
+  vPlanKey,
+  vBillingPeriod,
+  vPaymentStatus,
+  vSubscriptionSource,
   vUsageKey,
 } from "./validators";
 
@@ -493,35 +497,59 @@ export default defineSchema({
   }).index("by_org", ["organizationId"]),
   // --- end N1
 
-  // --- B1: billing (Clerk Billing for users; an organization's plan is its owner's plan)
-  // One row per Clerk subscription item. Holds no personal data: only the Clerk
-  // user id (needed to find the owner) and plan facts.
+  // --- B1/B2: billing (PayHero M-Pesa; an organization's plan is its own subscription)
+  // One subscription row per ORGANIZATION (PayHero M-Pesa payments, a trial or a
+  // manual grant). Holds no personal data.
   subscriptions: defineTable({
-    clerkUserId: v.string(),
-    clerkItemId: v.string(),
-    planSlug: v.string(),
-    featureSlugs: v.optional(v.array(v.string())),
+    organizationId: v.id("organizations"),
+    planKey: vPlanKey,
+    // Absent for manual grants (they are dated, not periodic).
+    period: v.optional(vBillingPeriod),
     status: vSubscriptionStatus,
-    isFreeTrial: v.boolean(),
+    currentPeriodStart: v.number(),
+    currentPeriodEnd: v.number(),
+    // Kept after the trial ends: its presence means the trial was used (one per organization).
     trialEndsAt: v.optional(v.number()),
-    currentPeriodEnd: v.optional(v.number()),
-    pastDueAt: v.optional(v.number()),
-    canceledAt: v.optional(v.number()),
-    lastEventId: v.string(),
-    // Provider timestamp of the last applied event; older events are ignored.
-    lastEventAt: v.number(),
+    lastPaymentId: v.optional(v.id("billingPayments")),
+    source: v.optional(vSubscriptionSource),
+    createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_clerk_user", ["clerkUserId"])
-    .index("by_item", ["clerkItemId"]),
+    .index("by_org", ["organizationId"])
+    .index("by_status_end", ["status", "currentPeriodEnd"]),
 
-  // Processed webhook delivery ids (Svix `svix-id`) for idempotency. Swept by cron.
-  processedWebhooks: defineTable({
-    eventId: v.string(),
-    processedAt: v.number(),
+  // One row per M-Pesa STK push attempt. The full phone number is NEVER stored:
+  // only its last four digits and a keyed hash (for per-number retry limits).
+  billingPayments: defineTable({
+    organizationId: v.id("organizations"),
+    planKey: vPlanKey,
+    period: vBillingPeriod,
+    // Taken from lib/billing/pricing.ts when the payment is created; never from a callback.
+    amountKes: v.number(),
+    provider: v.union(v.literal("payhero"), v.literal("dry-run")),
+    phoneLast4: v.string(),
+    phoneHash: v.string(),
+    payheroReference: v.optional(v.string()),
+    checkoutRequestId: v.optional(v.string()),
+    // Our own tracking id, sent to PayHero as external_reference.
+    externalReference: v.string(),
+    // SHA-256 of the random token in the callback URL path.
+    callbackTokenHash: v.string(),
+    status: vPaymentStatus,
+    // Machine code: "provider_unavailable", "not_completed", "verification_mismatch", ...
+    failureReason: v.optional(v.string()),
+    mpesaReceipt: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+    // When the subscription extension for this payment was applied (idempotency guard).
+    appliedAt: v.optional(v.number()),
+    lastCheckedAt: v.optional(v.number()),
   })
-    .index("by_event", ["eventId"])
-    .index("by_processed", ["processedAt"]),
+    .index("by_org_created", ["organizationId", "createdAt"])
+    .index("by_token_hash", ["callbackTokenHash"])
+    .index("by_status_created", ["status", "createdAt"])
+    .index("by_phone_created", ["phoneHash", "createdAt"]),
 
   // Monthly counters bumped by the mutation paths (never by scanning).
   usageCounters: defineTable({

@@ -181,6 +181,39 @@ export const TEMPLATES = {
       },
     },
   },
+  billing_renewal_reminder: {
+    audience: "staff",
+    label: "Plan renewal reminder (to billing managers)",
+    placeholders: ["orgName", "planName", "endDate", "daysLeft", "link"],
+    messages: {
+      en: {
+        subject: "Your {{planName}} plan ends in {{daysLeft}} day(s)",
+        body: "The {{planName}} plan for {{orgName}} ends on {{endDate}}. M-Pesa is paid once per period and does not renew automatically, so please pay again before then to keep the plan: {{link}}",
+      },
+    },
+  },
+  billing_payment_received: {
+    audience: "staff",
+    label: "Payment receipt (to billing managers)",
+    placeholders: ["orgName", "planName", "amount", "receipt", "endDate"],
+    messages: {
+      en: {
+        subject: "Payment received for {{orgName}}",
+        body: "We received {{amount}} (M-Pesa code {{receipt}}) for the {{planName}} plan of {{orgName}}. It is paid until {{endDate}}. Thank you.",
+      },
+    },
+  },
+  billing_plan_expired: {
+    audience: "staff",
+    label: "Plan expired (to billing managers)",
+    placeholders: ["orgName", "planName", "graceEnd", "link"],
+    messages: {
+      en: {
+        subject: "Your {{planName}} plan has ended",
+        body: "The {{planName}} plan for {{orgName}} has ended. You keep it until {{graceEnd}}; after that {{orgName}} moves to Starter. Nothing is deleted. Pay again to keep it: {{link}}",
+      },
+    },
+  },
   test_message: {
     audience: "staff",
     label: "Test message",
