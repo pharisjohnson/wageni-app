@@ -17,6 +17,7 @@ import type * as billing from "../billing.js";
 import type * as billingWebhook from "../billingWebhook.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
+import type * as dataRights from "../dataRights.js";
 import type * as files from "../files.js";
 import type * as filesKiosk from "../filesKiosk.js";
 import type * as filesVerify from "../filesVerify.js";
@@ -50,6 +51,7 @@ import type * as lib_publicLimit from "../lib/publicLimit.js";
 import type * as lib_reportExport from "../lib/reportExport.js";
 import type * as lib_reports from "../lib/reports.js";
 import type * as lib_retentionCron from "../lib/retentionCron.js";
+import type * as lib_throttle from "../lib/throttle.js";
 import type * as lib_time from "../lib/time.js";
 import type * as lib_usage from "../lib/usage.js";
 import type * as lib_validate from "../lib/validate.js";
@@ -89,6 +91,7 @@ import type * as visits from "../visits.js";
 "billingWebhook": typeof billingWebhook,
 "crons": typeof crons,
 "dashboard": typeof dashboard,
+"dataRights": typeof dataRights,
 "files": typeof files,
 "filesKiosk": typeof filesKiosk,
 "filesVerify": typeof filesVerify,
@@ -122,6 +125,7 @@ import type * as visits from "../visits.js";
 "lib/reportExport": typeof lib_reportExport,
 "lib/reports": typeof lib_reports,
 "lib/retentionCron": typeof lib_retentionCron,
+"lib/throttle": typeof lib_throttle,
 "lib/time": typeof lib_time,
 "lib/usage": typeof lib_usage,
 "lib/validate": typeof lib_validate,
