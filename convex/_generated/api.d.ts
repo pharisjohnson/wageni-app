@@ -24,6 +24,7 @@ import type * as filesVerify from "../filesVerify.js";
 import type * as formRetention from "../formRetention.js";
 import type * as forms from "../forms.js";
 import type * as gates from "../gates.js";
+import type * as health from "../health.js";
 import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
 import type * as kiosk from "../kiosk.js";
@@ -98,6 +99,7 @@ import type * as visits from "../visits.js";
 "formRetention": typeof formRetention,
 "forms": typeof forms,
 "gates": typeof gates,
+"health": typeof health,
 "http": typeof http,
 "invitations": typeof invitations,
 "kiosk": typeof kiosk,
