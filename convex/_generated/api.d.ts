@@ -1,15 +1,14 @@
 /* eslint-disable */
-  /**
-   * Generated `api` utility.
-   *
-   * THIS CODE IS AUTOMATICALLY GENERATED.
-   *
-   * To regenerate, run `npx convex dev`.
-   * @module
-   */
-  
-  import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
-  import type * as appointments from "../appointments.js";
+/**
+ * Generated `api` utility.
+ *
+ * THIS CODE IS AUTOMATICALLY GENERATED.
+ *
+ * To regenerate, run `npx convex dev`.
+ * @module
+ */
+
+import type * as appointments from "../appointments.js";
 import type * as attendance from "../attendance.js";
 import type * as attendancePins from "../attendancePins.js";
 import type * as audit from "../audit.js";
@@ -78,84 +77,107 @@ import type * as users from "../users.js";
 import type * as validators from "../validators.js";
 import type * as visits from "../visits.js";
 
-  /**
-   * A utility for referencing Convex functions in your app's API.
-   *
-   * Usage:
-   * ```js
-   * const myFunctionReference = api.myModule.myFunction;
-   * ```
-   */
-  declare const fullApi: ApiFromModules<{
-    "appointments": typeof appointments,
-"attendance": typeof attendance,
-"attendancePins": typeof attendancePins,
-"audit": typeof audit,
-"billing": typeof billing,
-"billingLifecycle": typeof billingLifecycle,
-"billingPayhero": typeof billingPayhero,
-"crons": typeof crons,
-"dashboard": typeof dashboard,
-"dataRights": typeof dataRights,
-"files": typeof files,
-"filesKiosk": typeof filesKiosk,
-"filesVerify": typeof filesVerify,
-"formRetention": typeof formRetention,
-"forms": typeof forms,
-"gates": typeof gates,
-"health": typeof health,
-"http": typeof http,
-"invitations": typeof invitations,
-"kiosk": typeof kiosk,
-"kioskAttendance": typeof kioskAttendance,
-"kioskDevices": typeof kioskDevices,
-"kioskForms": typeof kioskForms,
-"kioskVisitor": typeof kioskVisitor,
-"lib/attendance": typeof lib_attendance,
-"lib/audit": typeof lib_audit,
-"lib/auth": typeof lib_auth,
-"lib/billingNotify": typeof lib_billingNotify,
-"lib/entitlements": typeof lib_entitlements,
-"lib/errors": typeof lib_errors,
-"lib/files": typeof lib_files,
-"lib/formResponses": typeof lib_formResponses,
-"lib/functions": typeof lib_functions,
-"lib/invitationHooks": typeof lib_invitationHooks,
-"lib/invitationToken": typeof lib_invitationToken,
-"lib/kiosk": typeof lib_kiosk,
-"lib/kioskLookup": typeof lib_kioskLookup,
-"lib/log": typeof lib_log,
-"lib/notify": typeof lib_notify,
-"lib/pin": typeof lib_pin,
-"lib/policy": typeof lib_policy,
-"lib/proxy": typeof lib_proxy,
-"lib/publicLimit": typeof lib_publicLimit,
-"lib/reportExport": typeof lib_reportExport,
-"lib/reports": typeof lib_reports,
-"lib/retentionCron": typeof lib_retentionCron,
-"lib/throttle": typeof lib_throttle,
-"lib/time": typeof lib_time,
-"lib/usage": typeof lib_usage,
-"lib/validate": typeof lib_validate,
-"lib/visitors": typeof lib_visitors,
-"lib/visits": typeof lib_visits,
-"memberships": typeof memberships,
-"notifications": typeof notifications,
-"notificationsCron": typeof notificationsCron,
-"notificationsDelivery": typeof notificationsDelivery,
-"organizations": typeof organizations,
-"platform": typeof platform,
-"policies": typeof policies,
-"publicLimits": typeof publicLimits,
-"reports": typeof reports,
-"reportsExport": typeof reportsExport,
-"retention": typeof retention,
-"seed": typeof seed,
-"sites": typeof sites,
-"users": typeof users,
-"validators": typeof validators,
-"visits": typeof visits,
-  }>;
-  export declare const api: FilterApi<typeof fullApi, FunctionReference<any, "public">>;
-  export declare const internal: FilterApi<typeof fullApi, FunctionReference<any, "internal">>;
-  
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
+
+declare const fullApi: ApiFromModules<{
+  appointments: typeof appointments;
+  attendance: typeof attendance;
+  attendancePins: typeof attendancePins;
+  audit: typeof audit;
+  billing: typeof billing;
+  billingLifecycle: typeof billingLifecycle;
+  billingPayhero: typeof billingPayhero;
+  crons: typeof crons;
+  dashboard: typeof dashboard;
+  dataRights: typeof dataRights;
+  files: typeof files;
+  filesKiosk: typeof filesKiosk;
+  filesVerify: typeof filesVerify;
+  formRetention: typeof formRetention;
+  forms: typeof forms;
+  gates: typeof gates;
+  health: typeof health;
+  http: typeof http;
+  invitations: typeof invitations;
+  kiosk: typeof kiosk;
+  kioskAttendance: typeof kioskAttendance;
+  kioskDevices: typeof kioskDevices;
+  kioskForms: typeof kioskForms;
+  kioskVisitor: typeof kioskVisitor;
+  "lib/attendance": typeof lib_attendance;
+  "lib/audit": typeof lib_audit;
+  "lib/auth": typeof lib_auth;
+  "lib/billingNotify": typeof lib_billingNotify;
+  "lib/entitlements": typeof lib_entitlements;
+  "lib/errors": typeof lib_errors;
+  "lib/files": typeof lib_files;
+  "lib/formResponses": typeof lib_formResponses;
+  "lib/functions": typeof lib_functions;
+  "lib/invitationHooks": typeof lib_invitationHooks;
+  "lib/invitationToken": typeof lib_invitationToken;
+  "lib/kiosk": typeof lib_kiosk;
+  "lib/kioskLookup": typeof lib_kioskLookup;
+  "lib/log": typeof lib_log;
+  "lib/notify": typeof lib_notify;
+  "lib/pin": typeof lib_pin;
+  "lib/policy": typeof lib_policy;
+  "lib/proxy": typeof lib_proxy;
+  "lib/publicLimit": typeof lib_publicLimit;
+  "lib/reportExport": typeof lib_reportExport;
+  "lib/reports": typeof lib_reports;
+  "lib/retentionCron": typeof lib_retentionCron;
+  "lib/throttle": typeof lib_throttle;
+  "lib/time": typeof lib_time;
+  "lib/usage": typeof lib_usage;
+  "lib/validate": typeof lib_validate;
+  "lib/visitors": typeof lib_visitors;
+  "lib/visits": typeof lib_visits;
+  memberships: typeof memberships;
+  notifications: typeof notifications;
+  notificationsCron: typeof notificationsCron;
+  notificationsDelivery: typeof notificationsDelivery;
+  organizations: typeof organizations;
+  platform: typeof platform;
+  policies: typeof policies;
+  publicLimits: typeof publicLimits;
+  reports: typeof reports;
+  reportsExport: typeof reportsExport;
+  retention: typeof retention;
+  seed: typeof seed;
+  sites: typeof sites;
+  users: typeof users;
+  validators: typeof validators;
+  visits: typeof visits;
+}>;
+
+/**
+ * A utility for referencing Convex functions in your app's public API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = api.myModule.myFunction;
+ * ```
+ */
+export declare const api: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "public">
+>;
+
+/**
+ * A utility for referencing Convex functions in your app's internal API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = internal.myModule.myFunction;
+ * ```
+ */
+export declare const internal: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "internal">
+>;
+
+export declare const components: {};
